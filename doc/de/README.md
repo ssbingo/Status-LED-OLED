@@ -1,13 +1,5 @@
 # Installationsanleitung — RGB-Status-LED (WS2812B) + OLED-Display (SSD1306) für Raspberry Pi 4
 
----
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
-</p>
-
----
-
 [English](../../README.md) · **Deutsch**
 
 Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED (SSD1306 / Adafruit PiOLED) auf einem Raspberry Pi 4 ein. Die LED zeigt den Systemzustand per Farbe, das OLED parallel als Klartext (IP, CPU, RAM, Status). Beides steuert ein einziges Skript (`status_led.py`) und ein Dienst. Am Ende findest du eine Praxis-Rubrik **Troubleshooting** mit den Stolperfallen aus dem echten Aufbau.
@@ -69,6 +61,12 @@ Pi ausschalten und beides anschließen. Die Pins der zwei Geräte überschneiden
 - **3V3** → Pin 1  ·  **GND** → GND
 - **SDA** → GPIO2 (Pin 3)  ·  **SCL** → GPIO3 (Pin 5)
 
+### Taster (Display + Neustart)
+
+- Ein Bein → **GPIO17 (Pin 11)**, das andere Bein → **GND** (z. B. Pin 14)
+- Der interne Pull-up wird per Software aktiviert (gedrückt = LOW), daher **kein Widerstand nötig**
+- Kurzer Druck schaltet die Display-Seiten weiter, langer Druck (≥ 5 s) startet den Pi neu (siehe Abschnitt 11)
+
 ### Kombinierte Pin-Übersicht
 
 | Gerät / Funktion          | Pin          | Signal         |
@@ -81,6 +79,8 @@ Pi ausschalten und beides anschließen. Die Pins der zwei Geräte überschneiden
 | OLED – SDA                | Pin 3        | GPIO2          |
 | OLED – SCL                | Pin 5        | GPIO3          |
 | OLED – GND                | Pin 6        | GND            |
+| Taster – Signal           | Pin 11       | GPIO17         |
+| Taster – GND              | Pin 14 (frei)| GND            |
 
 *Pin 1 (3V3) versorgt sowohl OLED als auch die einzelne LED — beide dürfen daran hängen. Eine PiOLED steckt meist auf den Eckpins (1/3/5 + GND); nimm GND der LED daher von einem freien Pin (z. B. Pin 9).*
 
@@ -88,7 +88,7 @@ Pi ausschalten und beides anschließen. Die Pins der zwei Geräte überschneiden
 
 ![Raspberry Pi 4 Pinout](../../img/raspberrypi4-pinout.png)
 
-*Belegung für dieses Projekt: **LED-Daten** an GPIO18 (Pin 12), **LED-VDD** und **OLED-3V3** an 3,3 V (Pin 1), **OLED-SDA** an GPIO2 (Pin 3), **OLED-SCL** an GPIO3 (Pin 5), gemeinsame **Masse** an einem GND-Pin (z. B. Pin 6 oder Pin 9). SPI-Alternative für die LED-Daten: GPIO10/MOSI (Pin 19).*
+*Belegung für dieses Projekt: **LED-Daten** an GPIO18 (Pin 12), **LED-VDD** und **OLED-3V3** an 3,3 V (Pin 1), **OLED-SDA** an GPIO2 (Pin 3), **OLED-SCL** an GPIO3 (Pin 5), **Taster** an GPIO17 (Pin 11) gegen GND, gemeinsame **Masse** an einem GND-Pin (z. B. Pin 6, 9 oder 14). SPI-Alternative für die LED-Daten: GPIO10/MOSI (Pin 19).*
 
 ---
 
@@ -202,12 +202,19 @@ class Config:
     oled_addr: int = 0x3C           # I2C-Adresse (siehe i2cdetect)
     temp_threshold_c: float = 70.0  # Schwelle Uebertemperatur in Grad C
     net_check_host: str = "1.1.1.1" # Internet-Check; fuer LAN die Gateway-IP
+    button_enabled: bool = True     # Taster an GPIO17
+    button_pin: int = 17            # BCM-Pin, Taster gegen GND (interner Pull-up)
+    button_long_press_s: float = 5.0  # so lange halten -> Neustart
+    oled_page_timeout_s: float = 30.0 # Auto-Ruecksprung auf Seite 0
 ```
 
 - **`led_type`** — `"ws2812"` (PWM) oder `"ws2812-spi"` (SPI)
 - **`ws_count`** — **genau** die Anzahl deiner LEDs; zu niedrig → überzählige LEDs bleiben auf altem Wert
 - **`ws_pixel_order`** — fast immer `"GRB"`; nur ändern, wenn der Farbtest es zeigt
 - **`ws_brightness`** — Master-Dimmer; WS2812B sind sehr hell, 0.2–0.5 ist meist angenehm
+- **`button_pin`** — BCM-Pin des Tasters (Standard GPIO17 / Pin 11)
+- **`button_long_press_s`** — Haltedauer, die einen Neustart auslöst (Standard 5 s)
+- **`oled_page_timeout_s`** — nach dieser Untätigkeit springt das Display zurück zur Übersicht
 
 ---
 
@@ -291,7 +298,19 @@ journalctl -u status-led -f
 
 ---
 
-## 11. Backup-Status anbinden (optional)
+## 11. Display weiterschalten und Neustart per Taster
+
+Ein Taster an **GPIO17 (Pin 11)** steuert das Display und kann den Pi neu starten:
+
+- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht; die Seiten 1–4 zeigen je eine Zeile (IP, CPU, RAM, Status) einzeln in **großer, automatisch eingepasster Schrift**. Nach der letzten Seite geht es zurück zur Übersicht.
+- **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled_page_timeout_s`.
+- **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“, die LED wird rot, dann läuft `systemctl reboot`. Die Haltedauer legt `button_long_press_s` fest.
+
+Der Neustart braucht Root-Rechte — beim empfohlenen PWM-Setup läuft der Dienst ohnehin als `User=root`, das funktioniert also direkt. Bei der SPI-Variante unter einem normalen Benutzer wäre eine sudoers-/polkit-Regel nötig. Der Taster nutzt Blinkas `digitalio` und braucht kein zusätzliches Paket. Abschalten mit `--no-button` oder `button_enabled = False`.
+
+---
+
+## 12. Backup-Status anbinden (optional)
 
 Das Skript liest den Backup-Zustand aus `/run/status-led/backup`. Fehlt die Datei, wird kein Backup-Zustand angezeigt. Der Backup-Job schreibt `running`, `ok` oder `failed` hinein:
 
@@ -311,7 +330,7 @@ fi
 
 ---
 
-## 12. Referenz: Zustände, LED-Farbe und OLED-Text
+## 13. Referenz: Zustände, LED-Farbe und OLED-Text
 
 | Zustand               | LED-Farbe & Muster   | OLED-Text         | Prio |
 |-----------------------|----------------------|-------------------|------|
@@ -325,7 +344,7 @@ Bei mehreren aktiven Zuständen gewinnt der mit der höchsten Priorität (für L
 
 ---
 
-## 13. Eigene Zustände ergänzen
+## 14. Eigene Zustände ergänzen
 
 Jeder Zustand besteht aus Bedingung und Render-Funktion und wird mit Priorität in der Liste `STATUSES` registriert. Für die OLED-Anzeige zusätzlich einen Text in `STATUS_TEXT`:
 
@@ -344,7 +363,7 @@ STATUS_TEXT["mein_zustand"] = "Mein Text"
 
 ---
 
-## 14. Troubleshooting (aus der Praxis)
+## 15. Troubleshooting (aus der Praxis)
 
 Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart bis zur flackernden LED.
 
@@ -387,6 +406,18 @@ Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart
 ### ▶ Nach einem System-Update flackert die LED plötzlich wieder (PWM)
 - **Ursache:** Ein Update hat `/boot/firmware/config.txt` zurückgesetzt; `dtparam=audio=off` fehlt wieder.
 - **Lösung:** Die Zeile erneut eintragen und neu starten.
+
+### ▶ Taster reagiert nicht
+- **Ursache:** Falscher Pin, Taster nicht gegen GND verdrahtet oder deaktiviert.
+- **Lösung:** Taster zwischen **GPIO17 (Pin 11)** und GND anschließen, `button_pin` und `button_enabled = True` prüfen. Der interne Pull-up bedeutet gedrückt = LOW; kein Widerstand nötig.
+
+### ▶ Langer Druck löst keinen Neustart aus
+- **Ursache:** Der Dienst läuft nicht als root (z. B. SPI-Variante unter normalem Benutzer).
+- **Lösung:** Dienst als `User=root` betreiben (PWM-Standard), oder eine sudoers-/polkit-Regel für `systemctl reboot` anlegen.
+
+### ▶ Die großen Einzelseiten zeigen winzige Schrift
+- **Ursache:** Kein skalierbarer TrueType-Font gefunden, daher wird der kleine Bitmap-Font verwendet.
+- **Lösung:** DejaVu-Fonts installieren: `sudo apt install -y fonts-dejavu-core`.
 
 ### Nützliche Diagnose-Befehle
 

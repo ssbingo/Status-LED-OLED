@@ -32,6 +32,7 @@ import os
 import random
 import signal
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -69,6 +70,13 @@ class Config:
     oled_height: int = 32
     oled_addr: int = 0x3C             # Standardadresse der PiOLED (i2cdetect -y 1)
     oled_poll_s: float = 1.0          # OLED nur 1x/Sekunde neu zeichnen (I2C entlasten)
+    oled_page_timeout_s: float = 30.0 # Auto-Ruecksprung auf Seite 0 nach Inaktivitaet
+
+    # --- Taster (kurz: Display weiterschalten / lang: Neustart) ---
+    button_enabled: bool = True
+    button_pin: int = 17              # BCM; Taster gegen GND, interner Pull-up (gedrueckt = LOW)
+    button_long_press_s: float = 5.0  # ab dieser Haltedauer -> Reboot
+    button_debounce_s: float = 0.05   # Mindest-Druckdauer fuer "kurz"
 
     # --- Temperatur ---
     temp_threshold_c: float = 70.0    # ab hier "Uebertemperatur"
@@ -490,6 +498,9 @@ STATUS_TEXT = {
     "ok": "Normalbetrieb",
 }
 
+OLED_BIG_PAGES = 4                 # Anzahl Einzelzeilen-Seiten (gross)
+OLED_PAGES = 1 + OLED_BIG_PAGES    # Seite 0 = Uebersicht, 1..4 = Einzelzeilen
+
 
 def get_ip() -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -516,23 +527,34 @@ def get_mem_mb() -> tuple[int, int]:
         return 0, 0
 
 
-def oled_lines(ctx: Context, status: StatusDef) -> list[str]:
-    """Die vier Textzeilen fuer das 128x32-Display."""
+def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
+    """Vier (Label, Wert)-Paare - Basis fuer Uebersicht und Einzelseiten."""
     used, total = get_mem_mb()
     try:
         load1 = os.getloadavg()[0]
     except OSError:
         load1 = 0.0
     return [
-        f"IP {get_ip()}",
-        f"CPU {ctx.temp_c:.1f}C  L{load1:.2f}",
-        f"RAM {used}/{total}MB",
-        STATUS_TEXT.get(status.name, status.name),
+        ("IP", get_ip()),
+        ("CPU", f"{ctx.temp_c:.1f}C  L{load1:.2f}"),
+        ("RAM", f"{used}/{total}MB"),
+        ("Status", STATUS_TEXT.get(status.name, status.name)),
     ]
+
+
+def oled_lines(ctx: Context, status: StatusDef) -> list[str]:
+    """Die vier Textzeilen der Uebersicht (Seite 0)."""
+    f = oled_fields(ctx, status)
+    return [f"{f[0][0]} {f[0][1]}", f"{f[1][0]} {f[1][1]}", f"{f[2][0]} {f[2][1]}", f[3][1]]
 
 
 class OledStatus:
     """Echtes SSD1306-OLED ueber I2C (Adafruit PiOLED, Blinka + PIL)."""
+
+    _TTF_CANDIDATES = (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    )
 
     def __init__(self, cfg: Config):
         from board import SCL, SDA
@@ -545,21 +567,58 @@ class OledStatus:
         self._img = Image.new("1", (self._w, self._h))
         self._draw = ImageDraw.Draw(self._img)
         self._font = ImageFont.load_default()
+        self._ttf = next((p for p in self._TTF_CANDIDATES if os.path.exists(p)), None)
+        self._big_cache: dict[int, object] = {}
         self._poll = cfg.oled_poll_s
         self._last = 0.0
         self._disp.fill(0)
         self._disp.show()
 
-    def update(self, ctx: Context, status: StatusDef) -> None:
-        if ctx.now - self._last < self._poll:
+    def _fit_font(self, text: str, max_w: int, max_h: int = 24, lo: int = 10, hi: int = 28):
+        """Groesste TTF-Groesse, bei der text in max_w x max_h passt (gecacht)."""
+        if not self._ttf:
+            return self._font
+        from PIL import ImageFont
+        size = hi
+        while size >= lo:
+            f = self._big_cache.get(size)
+            if f is None:
+                f = ImageFont.truetype(self._ttf, size)
+                self._big_cache[size] = f
+            w = self._draw.textlength(text, font=f)
+            bbox = f.getbbox(text)
+            h = bbox[3] - bbox[1]
+            if w <= max_w and h <= max_h:
+                return f
+            size -= 1
+        return self._big_cache.get(lo, self._font)
+
+    def update(self, ctx: Context, status: StatusDef, page: int = 0, force: bool = False) -> None:
+        if not force and ctx.now - self._last < self._poll:
             return
         self._last = ctx.now
         d = self._draw
         d.rectangle((0, 0, self._w, self._h), outline=0, fill=0)
-        for i, text in enumerate(oled_lines(ctx, status)):
-            d.text((0, -2 + i * 8), text, font=self._font, fill=255)
+        if page <= 0:
+            for i, text in enumerate(oled_lines(ctx, status)):
+                d.text((0, -2 + i * 8), text, font=self._font, fill=255)
+        else:
+            label, value = oled_fields(ctx, status)[page - 1]
+            d.text((0, -2), label, font=self._font, fill=255)        # kleines Label oben
+            big = self._fit_font(value, self._w - 2, max_h=22)
+            d.text((self._w // 2, 20), value, font=big, fill=255, anchor="mm")
         self._disp.image(self._img)
         self._disp.show()
+
+    def message(self, text: str) -> None:
+        """Sofort eine zentrierte Meldung anzeigen (z. B. 'Neustart...')."""
+        d = self._draw
+        d.rectangle((0, 0, self._w, self._h), outline=0, fill=0)
+        big = self._fit_font(text, self._w - 2, max_h=24)
+        d.text((self._w // 2, self._h // 2), text, font=big, fill=255, anchor="mm")
+        self._disp.image(self._img)
+        self._disp.show()
+        self._last = 0.0  # naechster regulaerer Frame zeichnet wieder normal
 
     def close(self) -> None:
         try:
@@ -570,24 +629,121 @@ class OledStatus:
 
 
 class ConsoleOled:
-    """OLED-Ersatz fuer --simulate: gibt die vier Zeilen im Terminal aus."""
+    """OLED-Ersatz fuer --simulate: gibt die Seiten im Terminal aus."""
 
     def __init__(self, cfg: Config):
         self._poll = cfg.oled_poll_s
         self._last = 0.0
-        self._prev: list[str] | None = None
+        self._prev: str | None = None
 
-    def update(self, ctx: Context, status: StatusDef) -> None:
-        if ctx.now - self._last < self._poll:
+    def update(self, ctx: Context, status: StatusDef, page: int = 0, force: bool = False) -> None:
+        if not force and ctx.now - self._last < self._poll:
             return
         self._last = ctx.now
-        lines = oled_lines(ctx, status)
-        if lines != self._prev:
-            self._prev = lines
-            print("  [OLED] " + "  |  ".join(lines))
+        if page <= 0:
+            out = "  |  ".join(oled_lines(ctx, status))
+        else:
+            label, value = oled_fields(ctx, status)[page - 1]
+            out = f"[Seite {page}/{OLED_PAGES - 1}] {label}: {value}  (gross)"
+        if out != self._prev:
+            self._prev = out
+            print("  [OLED] " + out)
+
+    def message(self, text: str) -> None:
+        self._prev = None
+        print("  [OLED] >>> " + text)
 
     def close(self) -> None:
         pass
+
+
+# ============================================================================
+# Taster (kurz: Seite weiter, lang >= 5 s: Neustart)
+# ============================================================================
+
+
+class ButtonBase:
+    """Zeit-Zustandsautomat fuer einen Taster (gedrueckt = True)."""
+
+    def __init__(self, cfg: Config):
+        self._long = cfg.button_long_press_s
+        self._debounce = cfg.button_debounce_s
+        self._since: float | None = None
+        self._long_fired = False
+
+    def _is_pressed(self, now: float) -> bool:
+        raise NotImplementedError
+
+    def poll(self, now: float) -> str | None:
+        """Liefert 'short' (kurz losgelassen), 'long' (>= Haltedauer) oder None."""
+        pressed = self._is_pressed(now)
+        if pressed:
+            if self._since is None:
+                self._since = now
+                self._long_fired = False
+            elif not self._long_fired and (now - self._since) >= self._long:
+                self._long_fired = True
+                return "long"
+        else:
+            if self._since is not None:
+                held = now - self._since
+                self._since = None
+                if not self._long_fired and self._debounce <= held < self._long:
+                    return "short"
+        return None
+
+    def close(self) -> None:
+        pass
+
+
+class Button(ButtonBase):
+    """Echter GPIO-Taster ueber Blinka digitalio (interner Pull-up)."""
+
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
+        import board
+        import digitalio
+        self._io = digitalio.DigitalInOut(getattr(board, f"D{cfg.button_pin}"))
+        self._io.direction = digitalio.Direction.INPUT
+        self._io.pull = digitalio.Pull.UP
+
+    def _is_pressed(self, now: float) -> bool:
+        return not self._io.value   # Pull-up: gedrueckt = LOW
+
+    def close(self) -> None:
+        try:
+            self._io.deinit()
+        except Exception:
+            pass
+
+
+class SimButton(ButtonBase):
+    """Simulierter Taster: kurzer Druck (0,15 s) alle 4 s - nur fuer --simulate."""
+
+    def __init__(self, cfg: Config):
+        super().__init__(cfg)
+        self._t0 = time.monotonic()
+
+    def _is_pressed(self, now: float) -> bool:
+        return (now - self._t0) % 4.0 < 0.15
+
+
+def make_button(cfg: Config, simulate: bool):
+    """Erzeugt den Taster. Fehlt er/die Hardware, laeuft alles ohne Taster weiter."""
+    if not cfg.button_enabled:
+        return None
+    try:
+        return SimButton(cfg) if simulate else Button(cfg)
+    except Exception as e:  # noqa: BLE001
+        print(f"Taster nicht verfuegbar ({e}) - fahre ohne Taster fort", file=sys.stderr)
+        return None
+
+
+def do_reboot(simulate: bool) -> None:
+    if simulate:
+        print("  [SYSTEM] Neustart angefordert (in Simulation nur Hinweis)")
+        return
+    subprocess.run(["systemctl", "reboot"], check=False)
 
 
 # ============================================================================
@@ -622,6 +778,7 @@ def run(cfg: Config, simulate: bool = False) -> None:
 
     driver = make_driver(cfg)
     oled = make_oled(cfg, simulate)
+    button = make_button(cfg, simulate)
 
     if simulate:
         temp = SimTemperature(cfg)
@@ -646,10 +803,18 @@ def run(cfg: Config, simulate: bool = False) -> None:
     signal.signal(signal.SIGINT, handle)
     signal.signal(signal.SIGTERM, handle)
 
+    page = 0
+    page_since = time.monotonic()
+    rebooting = False
     start = time.monotonic()
     try:
         while not stop["flag"]:
             ctx.now = time.monotonic()
+
+            if rebooting:                # Anzeige eingefroren bis SIGTERM/Neustart
+                time.sleep(cfg.tick_s)
+                continue
+
             ctx.temp_c = temp.read(ctx.now)
             ctx.disk_active = disk.is_active(ctx.now)
             ctx.network_down = net.value
@@ -658,9 +823,34 @@ def run(cfg: Config, simulate: bool = False) -> None:
             status = current_status(ctx)
             driver.set_color(status.render(ctx))
 
+            force_oled = False
+            if button is not None:
+                event = button.poll(ctx.now)
+                if event == "short":
+                    page = (page + 1) % OLED_PAGES
+                    page_since = ctx.now
+                    force_oled = True
+                elif event == "long":
+                    rebooting = True
+                    driver.set_color((1.0, 0.0, 0.0))   # rot
+                    if oled is not None:
+                        try:
+                            oled.message("Neustart...")
+                        except Exception:
+                            pass
+                    do_reboot(simulate)
+                    if simulate:
+                        break
+                    continue
+
+            # Auto-Ruecksprung auf die Uebersicht
+            if page != 0 and (ctx.now - page_since) >= cfg.oled_page_timeout_s:
+                page = 0
+                force_oled = True
+
             if oled is not None:
                 try:
-                    oled.update(ctx, status)
+                    oled.update(ctx, status, page=page, force=force_oled)
                 except Exception:        # OLED-Fehler darf die LED nie stoppen
                     pass
 
@@ -673,6 +863,8 @@ def run(cfg: Config, simulate: bool = False) -> None:
         driver.close()
         if oled is not None:
             oled.close()
+        if button is not None:
+            button.close()
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -682,6 +874,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="LED-Treiber ueberschreiben")
     p.add_argument("--temp-threshold", type=float, help="Temperatur-Schwelle in Grad C")
     p.add_argument("--no-oled", action="store_true", help="OLED deaktivieren")
+    p.add_argument("--no-button", action="store_true", help="Taster deaktivieren")
     p.add_argument("--duration", type=float, help="Laufzeit in Sekunden (0 = endlos)")
     return p.parse_args(argv)
 
@@ -695,6 +888,8 @@ def main(argv: list[str] | None = None) -> None:
         cfg.temp_threshold_c = args.temp_threshold
     if args.no_oled:
         cfg.oled_enabled = False
+    if args.no_button:
+        cfg.button_enabled = False
     if args.duration is not None:
         cfg.duration_s = args.duration
     run(cfg, simulate=args.simulate)

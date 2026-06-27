@@ -1,13 +1,5 @@
 # RGB Status LED (WS2812B) + OLED Display (SSD1306) for Raspberry Pi 4
 
----
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
-</p>
-
----
-
 **English** · [Deutsch](doc/de/README.md)
 
 A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Raspberry Pi 4. The LED shows the system state by colour, the OLED shows the same state in plain text (IP, CPU, RAM, status). Both are driven by a single script (`status_led.py`) and one service. The last section is a hands-on **Troubleshooting** chapter with the pitfalls from a real-world setup.
@@ -69,6 +61,12 @@ Power off the Pi and connect both. The pins of the two devices do not overlap:
 - **3V3** → pin 1  ·  **GND** → GND
 - **SDA** → GPIO2 (pin 3)  ·  **SCL** → GPIO3 (pin 5)
 
+### Push button (display + reboot)
+
+- One leg → **GPIO17 (pin 11)**, the other leg → **GND** (e.g. pin 14)
+- The internal pull-up is enabled in software (pressed = LOW), so **no resistor is needed**
+- Short press cycles the display pages, a long press (≥ 5 s) reboots the Pi (see section 11)
+
 ### Combined pin overview
 
 | Device / function         | Pin          | Signal         |
@@ -81,6 +79,8 @@ Power off the Pi and connect both. The pins of the two devices do not overlap:
 | OLED – SDA                | Pin 3        | GPIO2          |
 | OLED – SCL                | Pin 5        | GPIO3          |
 | OLED – GND                | Pin 6        | GND            |
+| Button – signal           | Pin 11       | GPIO17         |
+| Button – GND              | Pin 14 (free)| GND            |
 
 *Pin 1 (3V3) powers both the OLED and the single LED — both may share it. A PiOLED usually sits on the corner pins (1/3/5 + GND), so take the LED's GND from a free pin (e.g. pin 9).*
 
@@ -88,7 +88,7 @@ Power off the Pi and connect both. The pins of the two devices do not overlap:
 
 ![Raspberry Pi 4 pinout](img/raspberrypi4-pinout.png)
 
-*Assignment for this project: **LED data** to GPIO18 (pin 12), **LED VDD** and **OLED 3V3** to 3.3 V (pin 1), **OLED SDA** to GPIO2 (pin 3), **OLED SCL** to GPIO3 (pin 5), common **ground** to a GND pin (e.g. pin 6 or pin 9). SPI alternative for the LED data: GPIO10/MOSI (pin 19).*
+*Assignment for this project: **LED data** to GPIO18 (pin 12), **LED VDD** and **OLED 3V3** to 3.3 V (pin 1), **OLED SDA** to GPIO2 (pin 3), **OLED SCL** to GPIO3 (pin 5), **push button** on GPIO17 (pin 11) against GND, common **ground** to a GND pin (e.g. pin 6, 9 or 14). SPI alternative for the LED data: GPIO10/MOSI (pin 19).*
 
 ---
 
@@ -202,12 +202,19 @@ class Config:
     oled_addr: int = 0x3C           # I2C address (see i2cdetect)
     temp_threshold_c: float = 70.0  # over-temperature threshold in degrees C
     net_check_host: str = "1.1.1.1" # internet check; for LAN use the gateway IP
+    button_enabled: bool = True     # push button on GPIO17
+    button_pin: int = 17            # BCM pin, button to GND (internal pull-up)
+    button_long_press_s: float = 5.0  # hold this long -> reboot
+    oled_page_timeout_s: float = 30.0 # auto-return to the overview (page 0)
 ```
 
 - **`led_type`** — `"ws2812"` (PWM) or `"ws2812-spi"` (SPI)
 - **`ws_count`** — **exactly** the number of your LEDs; too low → surplus LEDs keep their old value
 - **`ws_pixel_order`** — almost always `"GRB"`; only change it if the colour test says so
 - **`ws_brightness`** — master dimmer; WS2812B are very bright, 0.2–0.5 is usually pleasant
+- **`button_pin`** — BCM pin of the push button (default GPIO17 / pin 11)
+- **`button_long_press_s`** — hold time that triggers a reboot (default 5 s)
+- **`oled_page_timeout_s`** — after this idle time the display returns to the overview
 
 ---
 
@@ -291,7 +298,19 @@ journalctl -u status-led -f
 
 ---
 
-## 11. Connect a backup status (optional)
+## 11. Cycle the display and reboot (push button)
+
+A push button on **GPIO17 (pin 11)** controls the display and can reboot the Pi:
+
+- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview; pages 1–4 each show one line (IP, CPU, RAM, status) on its own in a **large, auto-fitted font**. After the last page it wraps back to the overview.
+- **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled_page_timeout_s`.
+- **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…”, the LED turns red, then `systemctl reboot` runs. The hold time is set by `button_long_press_s`.
+
+The reboot needs root privileges — with the recommended PWM setup the service already runs as `User=root`, so it works out of the box. For the SPI variant under a normal user you would need a sudoers/polkit rule. The button uses Blinka’s `digitalio` and needs no extra package. Disable it with `--no-button` or `button_enabled = False`.
+
+---
+
+## 12. Connect a backup status (optional)
 
 The script reads the backup state from `/run/status-led/backup`. If the file is missing, no backup state is shown. Your backup job writes `running`, `ok` or `failed` into it:
 
@@ -311,7 +330,7 @@ fi
 
 ---
 
-## 12. Reference: states, LED colour and OLED text
+## 13. Reference: states, LED colour and OLED text
 
 | State                 | LED colour & pattern  | OLED text         | Prio |
 |-----------------------|-----------------------|-------------------|------|
@@ -327,7 +346,7 @@ When several states are active, the one with the highest priority wins (for both
 
 ---
 
-## 13. Add your own states
+## 14. Add your own states
 
 Each state consists of a condition and a render function and is registered with a priority in the `STATUSES` list. For the OLED display, also add a text in `STATUS_TEXT`:
 
@@ -346,7 +365,7 @@ STATUS_TEXT["my_state"] = "My text"
 
 ---
 
-## 14. Troubleshooting (from practice)
+## 15. Troubleshooting (from practice)
 
 The following cases come from a real setup — from the service start to the flickering LED.
 
@@ -389,6 +408,18 @@ The following cases come from a real setup — from the service start to the fli
 ### ▶ After a system update the LED suddenly flickers again (PWM)
 - **Cause:** An update reset `/boot/firmware/config.txt`; `dtparam=audio=off` is missing again.
 - **Fix:** Add the line again and reboot.
+
+### ▶ Button does nothing
+- **Cause:** Wrong pin, the button is not wired against GND, or it is disabled.
+- **Fix:** Wire the button between **GPIO17 (pin 11)** and GND, check `button_pin` and `button_enabled = True`. The internal pull-up means pressed = LOW; no resistor needed.
+
+### ▶ Long press does not reboot
+- **Cause:** The service does not run as root (e.g. the SPI variant under a normal user).
+- **Fix:** Run the service as `User=root` (the PWM default), or add a sudoers/polkit rule allowing `systemctl reboot`.
+
+### ▶ The large single-line pages show tiny text
+- **Cause:** No scalable TrueType font was found, so the small bitmap font is used.
+- **Fix:** Install the DejaVu fonts: `sudo apt install -y fonts-dejavu-core`.
 
 ### Useful diagnostic commands
 
