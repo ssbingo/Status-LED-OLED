@@ -27,9 +27,12 @@ Echtbetrieb:            python3 status_led.py
 from __future__ import annotations
 
 import argparse
+import glob
+import json
 import math
 import os
 import random
+import shutil
 import signal
 import socket
 import subprocess
@@ -40,6 +43,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+try:
+    import tomllib                    # Python 3.11+ (Raspberry Pi OS Bookworm)
+except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
+    tomllib = None
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -94,10 +102,35 @@ class Config:
     net_check_port: int = 53
     net_check_timeout: float = 1.0
     net_poll_s: float = 5.0
+    net_iface: str = ""               # leer = alle Interfaces ausser lo summieren (Durchsatz-Anzeige)
+    net_throughput_enabled: bool = True
 
     # --- Backup-Status (wird aus einer Status-Datei gelesen) ---
     backup_status_path: str = "/run/status-led/backup"
     backup_poll_s: float = 1.0
+
+    # --- CPU-Last (hohe Auslastung) ---
+    cpuload_enabled: bool = True
+    cpuload_threshold: float = 0.0    # 1-Minuten-Load-Schwelle; 0 = automatisch (= Anzahl CPU-Kerne)
+    cpuload_hysteresis: float = 0.5   # Rueckfall erst bei (Schwelle - Hysterese)
+    cpuload_poll_s: float = 5.0
+
+    # --- Freier Speicherplatz ---
+    diskspace_enabled: bool = True
+    diskspace_path: str = "/"
+    diskspace_min_free_percent: float = 10.0  # Warnung, wenn weniger frei
+    diskspace_poll_s: float = 30.0
+
+    # --- SMART-Festplattengesundheit (benoetigt smartmontools + root) ---
+    smart_enabled: bool = False
+    smart_devices: tuple[str, ...] = ()  # leer = automatisch (smartctl --scan)
+    smart_poll_s: float = 300.0
+
+    # --- Luefter (Tacho ueber hwmon, sofern vorhanden) ---
+    fan_enabled: bool = False
+    fan_warn_below_rpm: int = 0       # 0 = nie warnen (nur Drehzahl anzeigen); sonst Warnung unter dieser Drehzahl
+    fan_poll_s: float = 5.0
+    fan_hwmon_glob: str = ""          # optionaler fester Pfad zu fanX_input; leer = automatisch suchen
 
     # --- Helligkeiten (0..1) ---
     green_idle: float = 0.25
@@ -111,6 +144,140 @@ class Config:
 
 RGB = tuple[float, float, float]      # je 0..1
 OFF: RGB = (0.0, 0.0, 0.0)
+
+
+# ============================================================================
+# Konfigurationsdatei (TOML)  --  optional, ueberschreibt die Defaults oben
+# ============================================================================
+#
+# Liegt unter /etc/status-led/config.toml (per --config aenderbar). Sektionen
+# bilden Gruppen, die Schluessel werden auf die Felder von Config gemappt.
+# Fehlt die Datei, gelten die Standardwerte. Siehe config.example.toml.
+
+DEFAULT_CONFIG_PATH = "/etc/status-led/config.toml"
+
+# dotted TOML-Schluessel -> Config-Feldname
+CONFIG_MAP: dict[str, str] = {
+    "led_type": "led_type",
+    "led.pin_red": "pin_red",
+    "led.pin_green": "pin_green",
+    "led.pin_blue": "pin_blue",
+    "led.active_high": "active_high",
+    "led.ws_pin": "ws_pin",
+    "led.ws_count": "ws_count",
+    "led.ws_brightness": "ws_brightness",
+    "led.ws_pixel_order": "ws_pixel_order",
+    "oled.enabled": "oled_enabled",
+    "oled.width": "oled_width",
+    "oled.height": "oled_height",
+    "oled.addr": "oled_addr",
+    "oled.poll_s": "oled_poll_s",
+    "oled.page_timeout_s": "oled_page_timeout_s",
+    "button.enabled": "button_enabled",
+    "button.pin": "button_pin",
+    "button.long_press_s": "button_long_press_s",
+    "button.debounce_s": "button_debounce_s",
+    "temp.threshold_c": "temp_threshold_c",
+    "temp.hysteresis_c": "temp_hysteresis_c",
+    "temp.path": "temp_path",
+    "temp.poll_s": "temp_poll_s",
+    "disk.poll_s": "disk_poll_s",
+    "disk.active_hold_s": "disk_active_hold_s",
+    "disk.devices": "disk_devices",
+    "network.check_host": "net_check_host",
+    "network.check_port": "net_check_port",
+    "network.check_timeout": "net_check_timeout",
+    "network.poll_s": "net_poll_s",
+    "network.iface": "net_iface",
+    "network.throughput_enabled": "net_throughput_enabled",
+    "backup.status_path": "backup_status_path",
+    "backup.poll_s": "backup_poll_s",
+    "cpuload.enabled": "cpuload_enabled",
+    "cpuload.threshold": "cpuload_threshold",
+    "cpuload.hysteresis": "cpuload_hysteresis",
+    "cpuload.poll_s": "cpuload_poll_s",
+    "diskspace.enabled": "diskspace_enabled",
+    "diskspace.path": "diskspace_path",
+    "diskspace.min_free_percent": "diskspace_min_free_percent",
+    "diskspace.poll_s": "diskspace_poll_s",
+    "smart.enabled": "smart_enabled",
+    "smart.devices": "smart_devices",
+    "smart.poll_s": "smart_poll_s",
+    "fan.enabled": "fan_enabled",
+    "fan.warn_below_rpm": "fan_warn_below_rpm",
+    "fan.poll_s": "fan_poll_s",
+    "fan.hwmon": "fan_hwmon_glob",
+    "brightness.green_idle": "green_idle",
+    "brightness.green_active": "green_active",
+    "brightness.red_level": "red_level",
+    "loop.tick_s": "tick_s",
+    "loop.duration_s": "duration_s",
+}
+
+
+def _flatten_toml(data: dict, prefix: str = "") -> dict:
+    """Verschachtelte TOML-Tabellen zu dotted keys verflachen (eine Ebene tief)."""
+    out: dict = {}
+    for key, val in data.items():
+        dotted = f"{prefix}{key}"
+        if isinstance(val, dict):
+            out.update(_flatten_toml(val, dotted + "."))
+        else:
+            out[dotted] = val
+    return out
+
+
+def _coerce(current, value):
+    """Wert auf den Typ des bestehenden Config-Defaults bringen."""
+    if isinstance(current, bool):          # vor int pruefen (bool ist int-Subklasse)
+        return bool(value)
+    if isinstance(current, tuple):
+        return tuple(str(x) for x in value)
+    if isinstance(current, int):
+        return int(value)
+    if isinstance(current, float):
+        return float(value)
+    if isinstance(current, str):
+        return str(value)
+    return value
+
+
+def apply_config_dict(cfg: "Config", data: dict) -> list[str]:
+    """Wendet ein (bereits geparstes) TOML-Dict auf cfg an.
+    Liefert die Liste unbekannter Schluessel (fuer Warnungen/Tests)."""
+    unknown: list[str] = []
+    for dotted, value in _flatten_toml(data).items():
+        field = CONFIG_MAP.get(dotted)
+        if field is None:
+            unknown.append(dotted)
+            continue
+        try:
+            setattr(cfg, field, _coerce(getattr(cfg, field), value))
+        except (TypeError, ValueError):
+            print(f"Konfig-Wert ungueltig fuer '{dotted}': {value!r}", file=sys.stderr)
+    return unknown
+
+
+def load_config(path: str, required: bool = False) -> Config:
+    """Liest die TOML-Konfiguration. Fehlt sie, gelten die Defaults aus Config."""
+    cfg = Config()
+    p = Path(path)
+    if not p.exists():
+        if required:
+            print(f"Konfig nicht gefunden: {path} - nutze Standardwerte", file=sys.stderr)
+        return cfg
+    if tomllib is None:
+        print("Konfig ignoriert: Python < 3.11 hat kein tomllib - nutze Standardwerte", file=sys.stderr)
+        return cfg
+    try:
+        with open(p, "rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"Konfig-Fehler ({e}) - nutze Standardwerte", file=sys.stderr)
+        return cfg
+    for key in apply_config_dict(cfg, data):
+        print(f"Unbekannter Konfig-Schluessel ignoriert: {key}", file=sys.stderr)
+    return cfg
 
 
 # ============================================================================
@@ -210,6 +377,12 @@ class ConsoleLed(LedDriver):
             return "MAGENTA (Backup fehlgeschlagen)"
         if r == 0 and g > 0 and b > 0:
             return "CYAN (Backup laeuft)"
+        if r > 0 and g > 0 and b > 0:
+            return "WEISS (SMART-Fehler)"
+        if r > 0 and g > 0 and b == 0:      # gelb/orange/bernstein
+            if g >= r:
+                return "GELB (Speicher voll)"
+            return "ORANGE/BERNSTEIN (Luefter / CPU-Last)"
         if (r, g, b) == (0, 0, 0):
             return "aus"
         return ""
@@ -349,6 +522,146 @@ class BackgroundValue:
         self._stop.set()
 
 
+class CpuLoadSensor:
+    """1-Minuten-Load ueber os.getloadavg()."""
+
+    def __init__(self, cfg: Config):
+        self._poll = cfg.cpuload_poll_s
+        self._last = 0.0
+        self._value = 0.0
+
+    def read(self, now: float) -> float:
+        if now - self._last >= self._poll:
+            self._last = now
+            try:
+                self._value = os.getloadavg()[0]
+            except OSError:
+                pass
+        return self._value
+
+
+class DiskSpaceSensor:
+    """Freier Speicherplatz in Prozent (shutil.disk_usage)."""
+
+    def __init__(self, cfg: Config):
+        self._path = cfg.diskspace_path
+        self._poll = cfg.diskspace_poll_s
+        self._last = 0.0
+        self._value = 100.0
+
+    def read(self, now: float) -> float:
+        if now - self._last >= self._poll:
+            self._last = now
+            try:
+                u = shutil.disk_usage(self._path)
+                self._value = u.free / u.total * 100.0 if u.total else 100.0
+            except OSError:
+                pass
+        return self._value
+
+
+class FanSensor:
+    """Luefterdrehzahl (RPM) ueber einen hwmon-Tacho, sofern vorhanden."""
+
+    _CANDIDATES = (
+        "/sys/class/hwmon/hwmon*/fan*_input",
+        "/sys/devices/platform/cooling_fan/hwmon/hwmon*/fan*_input",
+    )
+
+    def __init__(self, cfg: Config):
+        self._poll = cfg.fan_poll_s
+        self._last = 0.0
+        self._rpm: int | None = None
+        self._path = self._find(cfg.fan_hwmon_glob)
+
+    @classmethod
+    def _find(cls, override: str) -> str | None:
+        patterns = (override,) if override else cls._CANDIDATES
+        for pat in patterns:
+            matches = sorted(glob.glob(pat))
+            if matches:
+                return matches[0]
+        return None
+
+    def read(self, now: float) -> int | None:
+        if self._path and now - self._last >= self._poll:
+            self._last = now
+            try:
+                self._rpm = int(Path(self._path).read_text().strip())
+            except (OSError, ValueError):
+                self._rpm = None
+        return self._rpm
+
+
+def smart_scan() -> list[str]:
+    """Geraete via 'smartctl --scan' ermitteln."""
+    try:
+        out = subprocess.run(["smartctl", "--scan", "-j"],
+                             capture_output=True, text=True, timeout=10)
+        data = json.loads(out.stdout or "{}")
+        return [d["name"] for d in data.get("devices", []) if "name" in d]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def smart_probe(cfg: Config) -> dict:
+    """Fragt SMART-Status + Temperatur ab. Liefert {'failed': bool, 'temp_c': float|None}.
+    Bei fehlendem smartctl o. Fehlern: failed=False (kein Fehlalarm)."""
+    devices = list(cfg.smart_devices) or smart_scan()
+    failed = False
+    temp: float | None = None
+    for dev in devices:
+        try:
+            out = subprocess.run(["smartctl", "-H", "-A", "-j", dev],
+                                 capture_output=True, text=True, timeout=20)
+            data = json.loads(out.stdout or "{}")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            continue
+        if data.get("smart_status", {}).get("passed") is False:
+            failed = True
+        t = data.get("temperature", {}).get("current")
+        if isinstance(t, (int, float)):
+            temp = t if temp is None else max(temp, t)
+    return {"failed": failed, "temp_c": temp}
+
+
+class NetThroughput:
+    """Netzwerk-Durchsatz (Bytes/s) aus /sys/class/net/*/statistics."""
+
+    def __init__(self, cfg: Config):
+        self._iface = cfg.net_iface
+        self._poll = 1.0
+        self._last_t = 0.0
+        self._rx_rate = 0.0
+        self._tx_rate = 0.0
+        self._prev = self._read_counters()
+
+    def _read_counters(self) -> tuple[int, int]:
+        if self._iface:
+            bases = [f"/sys/class/net/{self._iface}"]
+        else:
+            bases = [p for p in glob.glob("/sys/class/net/*") if not p.endswith("/lo")]
+        rx = tx = 0
+        for base in bases:
+            try:
+                rx += int(Path(base + "/statistics/rx_bytes").read_text())
+                tx += int(Path(base + "/statistics/tx_bytes").read_text())
+            except (OSError, ValueError):
+                pass
+        return rx, tx
+
+    def read(self, now: float) -> tuple[float, float]:
+        if now - self._last_t >= self._poll:
+            rx, tx = self._read_counters()
+            if self._last_t:
+                dt = now - self._last_t
+                self._rx_rate = max(0, rx - self._prev[0]) / dt
+                self._tx_rate = max(0, tx - self._prev[1]) / dt
+            self._prev = (rx, tx)
+            self._last_t = now
+        return self._rx_rate, self._tx_rate
+
+
 # --- Simulierte Sensoren (nur fuer --simulate) -------------------------------
 
 
@@ -395,6 +708,58 @@ class SimBackup:
         return "ok"
 
 
+class SimCpuLoad:
+    def __init__(self, cfg: Config):
+        self._start = time.monotonic()
+        self._th = cfg.cpuload_threshold or float(os.cpu_count() or 4)
+
+    def read(self, now: float) -> float:
+        # schwingt zwischen 0,5x und 1,5x Schwelle -> kreuzt die Grenze regelmaessig
+        return self._th * (0.5 + (math.sin((now - self._start) * 2 * math.pi / 12.0) * 0.5 + 0.5))
+
+
+class SimDiskSpace:
+    def __init__(self, cfg: Config):
+        self._start = time.monotonic()
+
+    def read(self, now: float) -> float:
+        # pendelt zwischen ~5% und ~25% frei -> faellt zeitweise unter 10%
+        return 5.0 + 20.0 * (math.sin((now - self._start) * 2 * math.pi / 18.0) * 0.5 + 0.5)
+
+
+class SimFan:
+    def __init__(self, cfg: Config):
+        self._start = time.monotonic()
+
+    def read(self, now: float) -> int | None:
+        t = (now - self._start) % 20.0
+        if t < 3.0:
+            return 0                       # Luefter steht (loest Warnung aus, wenn Schwelle gesetzt)
+        return int(1500 + 400 * math.sin(now))
+
+
+class SimSmart:
+    def __init__(self, cfg: Config):
+        self._start = time.monotonic()
+
+    @property
+    def value(self) -> dict:
+        t = (time.monotonic() - self._start) % 30.0
+        return {"failed": 20.0 <= t < 24.0, "temp_c": 38.0 + 5.0 * math.sin(t)}
+
+    def stop(self) -> None:
+        pass
+
+
+class SimNetThroughput:
+    def __init__(self, cfg: Config):
+        self._start = time.monotonic()
+
+    def read(self, now: float) -> tuple[float, float]:
+        base = now - self._start
+        return abs(math.sin(base)) * 2_000_000, abs(math.cos(base)) * 500_000
+
+
 # ============================================================================
 # Zustand (Status)  --  Kern der Erweiterbarkeit
 # ============================================================================
@@ -410,6 +775,15 @@ class Context:
     network_down: bool = False
     backup_state: str = "ok"
     overtemp_latched: bool = False
+    cpu_load: float = 0.0
+    cpuload_latched: bool = False
+    disk_free_pct: float = 100.0
+    smart_failed: bool = False
+    disk_temp_c: float | None = None
+    fan_rpm: int | None = None
+    fan_failed: bool = False
+    net_rx_rate: float = 0.0
+    net_tx_rate: float = 0.0
 
 
 @dataclass
@@ -464,6 +838,56 @@ def render_backup_running(ctx: Context) -> RGB:
     return (0.0, level, level)
 
 
+def is_smart_failed(ctx: Context) -> bool:
+    return ctx.cfg.smart_enabled and ctx.smart_failed
+
+
+def render_smart_failed(ctx: Context) -> RGB:
+    on = int(ctx.now * 3) % 2 == 0          # weiss, schnelles Blinken (3 Hz)
+    return (1.0, 1.0, 1.0) if on else OFF
+
+
+def is_fan_warn(ctx: Context) -> bool:
+    return ctx.cfg.fan_enabled and ctx.fan_failed
+
+
+def render_fan_warn(ctx: Context) -> RGB:
+    on = int(ctx.now * 2) % 2 == 0          # orange, 2 Hz
+    return (1.0, 0.35, 0.0) if on else OFF
+
+
+def is_diskspace_low(ctx: Context) -> bool:
+    cfg = ctx.cfg
+    return cfg.diskspace_enabled and ctx.disk_free_pct < cfg.diskspace_min_free_percent
+
+
+def render_diskspace_low(ctx: Context) -> RGB:
+    on = int(ctx.now) % 2 == 0              # gelb, langsames Blinken (1 Hz)
+    return (1.0, 1.0, 0.0) if on else OFF
+
+
+def cpuload_threshold(cfg: Config) -> float:
+    return cfg.cpuload_threshold if cfg.cpuload_threshold > 0 else float(os.cpu_count() or 1)
+
+
+def is_cpuload_high(ctx: Context) -> bool:
+    cfg = ctx.cfg
+    if not cfg.cpuload_enabled:
+        return False
+    th = cpuload_threshold(cfg)
+    if ctx.cpuload_latched:
+        if ctx.cpu_load <= th - cfg.cpuload_hysteresis:
+            ctx.cpuload_latched = False
+    elif ctx.cpu_load >= th:
+        ctx.cpuload_latched = True
+    return ctx.cpuload_latched
+
+
+def render_cpuload_high(ctx: Context) -> RGB:
+    level = 0.3 + 0.7 * (math.sin(ctx.now * math.pi / 1.5) * 0.5 + 0.5)  # bernstein, langsamer Puls
+    return (level, level * 0.4, 0.0)
+
+
 def render_ok(ctx: Context) -> RGB:
     cfg = ctx.cfg
     level = cfg.green_active if ctx.disk_active else cfg.green_idle
@@ -471,11 +895,15 @@ def render_ok(ctx: Context) -> RGB:
 
 
 STATUSES: list[StatusDef] = [
-    StatusDef("overtemp",       100, is_overtemp,       render_overtemp),
-    StatusDef("network_down",    80, is_network_down,   render_network_down),
-    StatusDef("backup_failed",   70, is_backup_failed,  render_backup_failed),
-    StatusDef("backup_running",  40, is_backup_running, render_backup_running),
-    StatusDef("ok",               0, lambda c: True,    render_ok),
+    StatusDef("overtemp",       100, is_overtemp,        render_overtemp),
+    StatusDef("smart_warn",      90, is_smart_failed,    render_smart_failed),
+    StatusDef("fan_warn",        85, is_fan_warn,        render_fan_warn),
+    StatusDef("network_down",    80, is_network_down,    render_network_down),
+    StatusDef("backup_failed",   70, is_backup_failed,   render_backup_failed),
+    StatusDef("diskspace_low",   60, is_diskspace_low,   render_diskspace_low),
+    StatusDef("backup_running",  40, is_backup_running,  render_backup_running),
+    StatusDef("cpuload_high",    30, is_cpuload_high,    render_cpuload_high),
+    StatusDef("ok",               0, lambda c: True,     render_ok),
 ]
 
 
@@ -492,14 +920,15 @@ def current_status(ctx: Context) -> StatusDef:
 
 STATUS_TEXT = {
     "overtemp": "UEBERTEMPERATUR!",
+    "smart_warn": "SMART-Fehler!",
+    "fan_warn": "Luefter-Warnung!",
     "network_down": "Kein Netzwerk",
     "backup_failed": "Backup-Fehler!",
+    "diskspace_low": "Speicher voll!",
     "backup_running": "Backup laeuft...",
+    "cpuload_high": "CPU-Last hoch",
     "ok": "Normalbetrieb",
 }
-
-OLED_BIG_PAGES = 4                 # Anzahl Einzelzeilen-Seiten (gross)
-OLED_PAGES = 1 + OLED_BIG_PAGES    # Seite 0 = Uebersicht, 1..4 = Einzelzeilen
 
 
 def get_ip() -> str:
@@ -527,19 +956,67 @@ def get_mem_mb() -> tuple[int, int]:
         return 0, 0
 
 
-def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
-    """Vier (Label, Wert)-Paare - Basis fuer Uebersicht und Einzelseiten."""
-    used, total = get_mem_mb()
+def get_uptime_s() -> float:
     try:
-        load1 = os.getloadavg()[0]
-    except OSError:
-        load1 = 0.0
-    return [
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
+def fmt_uptime(seconds: float) -> str:
+    s = int(seconds)
+    d, h, m = s // 86400, (s % 86400) // 3600, (s % 3600) // 60
+    if d:
+        return f"{d}d{h}h"
+    if h:
+        return f"{h}h{m}m"
+    return f"{m}m"
+
+
+def fmt_rate(bps: float) -> str:
+    units = ("B/s", "K/s", "M/s", "G/s")
+    i = 0
+    while bps >= 1024 and i < len(units) - 1:
+        bps /= 1024
+        i += 1
+    return f"{bps:.0f}{units[i]}" if i == 0 else f"{bps:.1f}{units[i]}"
+
+
+def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
+    """Geordnete (Label, Wert)-Paare. Die ersten vier bilden die Uebersicht (Seite 0),
+    alle weiteren erscheinen nur als grosse Einzelseiten. Optionale Felder haengen
+    von den aktivierten Funktionen ab (siehe oled_big_page_count)."""
+    cfg = ctx.cfg
+    used, total = get_mem_mb()
+    fields: list[tuple[str, str]] = [
         ("IP", get_ip()),
-        ("CPU", f"{ctx.temp_c:.1f}C  L{load1:.2f}"),
+        ("CPU", f"{ctx.temp_c:.0f}C L{ctx.cpu_load:.2f}"),
         ("RAM", f"{used}/{total}MB"),
         ("Status", STATUS_TEXT.get(status.name, status.name)),
+        ("Up", fmt_uptime(get_uptime_s())),
     ]
+    if cfg.net_throughput_enabled:
+        fields.append(("Net", f"v{fmt_rate(ctx.net_rx_rate)} ^{fmt_rate(ctx.net_tx_rate)}"))
+    if cfg.smart_enabled:
+        fields.append(("Disk", f"{ctx.disk_temp_c:.0f}C" if ctx.disk_temp_c is not None else "n/a"))
+    if cfg.fan_enabled:
+        fields.append(("Fan", f"{ctx.fan_rpm}rpm" if ctx.fan_rpm is not None else "n/a"))
+    return fields
+
+
+def oled_big_page_count(cfg: Config) -> int:
+    """Anzahl grosser Einzelseiten - haengt nur von cfg ab, daher stabil zur Laufzeit."""
+    n = 5  # IP, CPU, RAM, Status, Up
+    n += int(cfg.net_throughput_enabled)
+    n += int(cfg.smart_enabled)
+    n += int(cfg.fan_enabled)
+    return n
+
+
+def oled_page_count(cfg: Config) -> int:
+    """Gesamtzahl Seiten: Uebersicht (0) + grosse Einzelseiten."""
+    return 1 + oled_big_page_count(cfg)
 
 
 def oled_lines(ctx: Context, status: StatusDef) -> list[str]:
@@ -643,8 +1120,9 @@ class ConsoleOled:
         if page <= 0:
             out = "  |  ".join(oled_lines(ctx, status))
         else:
-            label, value = oled_fields(ctx, status)[page - 1]
-            out = f"[Seite {page}/{OLED_PAGES - 1}] {label}: {value}  (gross)"
+            fields = oled_fields(ctx, status)
+            label, value = fields[page - 1]
+            out = f"[Seite {page}/{len(fields)}] {label}: {value}  (gross)"
         if out != self._prev:
             self._prev = out
             print("  [OLED] " + out)
@@ -775,6 +1253,11 @@ def make_oled(cfg: Config, simulate: bool):
 def run(cfg: Config, simulate: bool = False) -> None:
     if simulate:
         cfg.led_type = "console"
+        # Im Simulationsbetrieb alle Funktionen aktivieren, damit die Demo sie zeigt
+        cfg.smart_enabled = True
+        cfg.fan_enabled = True
+        if cfg.fan_warn_below_rpm <= 0:
+            cfg.fan_warn_below_rpm = 500
 
     driver = make_driver(cfg)
     oled = make_oled(cfg, simulate)
@@ -785,6 +1268,11 @@ def run(cfg: Config, simulate: bool = False) -> None:
         disk = SimDisk(cfg)
         net = SimNetwork(cfg)
         backup = SimBackup(cfg)
+        cpuload = SimCpuLoad(cfg)
+        diskspace = SimDiskSpace(cfg)
+        fan = SimFan(cfg)
+        smart = SimSmart(cfg)
+        netio = SimNetThroughput(cfg)
     else:
         temp = TemperatureSensor(cfg)
         disk = DiskActivity(cfg)
@@ -793,8 +1281,15 @@ def run(cfg: Config, simulate: bool = False) -> None:
             interval_s=cfg.net_poll_s, initial=False,
         )
         backup = BackupStatus(cfg)
+        cpuload = CpuLoadSensor(cfg) if cfg.cpuload_enabled else None
+        diskspace = DiskSpaceSensor(cfg) if cfg.diskspace_enabled else None
+        fan = FanSensor(cfg) if cfg.fan_enabled else None
+        smart = BackgroundValue(lambda: smart_probe(cfg), interval_s=cfg.smart_poll_s,
+                                initial={"failed": False, "temp_c": None}) if cfg.smart_enabled else None
+        netio = NetThroughput(cfg) if cfg.net_throughput_enabled else None
 
     ctx = Context(cfg=cfg)
+    page_count = oled_page_count(cfg)
     stop = {"flag": False}
 
     def handle(_sig, _frame):
@@ -819,6 +1314,20 @@ def run(cfg: Config, simulate: bool = False) -> None:
             ctx.disk_active = disk.is_active(ctx.now)
             ctx.network_down = net.value
             ctx.backup_state = backup.read(ctx.now)
+            if cpuload is not None:
+                ctx.cpu_load = cpuload.read(ctx.now)
+            if diskspace is not None:
+                ctx.disk_free_pct = diskspace.read(ctx.now)
+            if fan is not None:
+                ctx.fan_rpm = fan.read(ctx.now)
+                ctx.fan_failed = (cfg.fan_warn_below_rpm > 0 and ctx.fan_rpm is not None
+                                  and ctx.fan_rpm < cfg.fan_warn_below_rpm)
+            if smart is not None:
+                s = smart.value
+                ctx.smart_failed = s["failed"]
+                ctx.disk_temp_c = s["temp_c"]
+            if netio is not None:
+                ctx.net_rx_rate, ctx.net_tx_rate = netio.read(ctx.now)
 
             status = current_status(ctx)
             driver.set_color(status.render(ctx))
@@ -827,7 +1336,7 @@ def run(cfg: Config, simulate: bool = False) -> None:
             if button is not None:
                 event = button.poll(ctx.now)
                 if event == "short":
-                    page = (page + 1) % OLED_PAGES
+                    page = (page + 1) % page_count
                     page_since = ctx.now
                     force_oled = True
                 elif event == "long":
@@ -859,6 +1368,8 @@ def run(cfg: Config, simulate: bool = False) -> None:
             time.sleep(cfg.tick_s)
     finally:
         net.stop()
+        if smart is not None and hasattr(smart, "stop"):
+            smart.stop()
         driver.set_color(OFF)
         driver.close()
         if oled is not None:
@@ -870,6 +1381,8 @@ def run(cfg: Config, simulate: bool = False) -> None:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RGB-Status-LED + OLED fuer Raspberry Pi 4")
     p.add_argument("--simulate", action="store_true", help="ohne Hardware im Terminal testen")
+    p.add_argument("--config", default=DEFAULT_CONFIG_PATH,
+                   help=f"Pfad zur TOML-Konfiguration (Standard: {DEFAULT_CONFIG_PATH})")
     p.add_argument("--led-type", choices=["analog", "ws2812", "ws2812-spi", "console"],
                    help="LED-Treiber ueberschreiben")
     p.add_argument("--temp-threshold", type=float, help="Temperatur-Schwelle in Grad C")
@@ -881,7 +1394,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    cfg = Config()
+    # Reihenfolge: Defaults < Konfigurationsdatei < CLI-Argumente
+    cfg = load_config(args.config, required=(args.config != DEFAULT_CONFIG_PATH))
     if args.led_type:
         cfg.led_type = args.led_type
     if args.temp_threshold is not None:

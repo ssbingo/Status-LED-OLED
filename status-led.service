@@ -13,6 +13,8 @@ RuntimeDirectory=status-led
 #  PWM-Variante (Standard): User=root  -- so lassen
 #  SPI-Variante: User=DEIN_BENUTZERNAME  (NICHT "pi"; muss in Gruppen spi,i2c sein)
 #  venv: ExecStart=/opt/status-led-venv/bin/python /usr/local/bin/status_led.py
+#  Konfiguration (optional): /etc/status-led/config.toml wird automatisch gelesen.
+#  Anderer Pfad: ExecStart=... /usr/local/bin/status_led.py --config /pfad/config.toml
 
 [Install]
 WantedBy=multi-user.target

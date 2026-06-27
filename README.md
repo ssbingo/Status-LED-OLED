@@ -1,17 +1,31 @@
 # RGB Status LED (WS2812B) + OLED Display (SSD1306) for Raspberry Pi 4
 
+---
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+</p>
+
+---
+
 **English** · [Deutsch](doc/de/README.md)
 
-A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Raspberry Pi 4. The LED shows the system state by colour, the OLED shows the same state in plain text (IP, CPU, RAM, status). Both are driven by a single script (`status_led.py`) and one service. The last section is a hands-on **Troubleshooting** chapter with the pitfalls from a real-world setup.
+A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Raspberry Pi 4. The LED shows the system state by colour, the OLED shows the same state in plain text (IP, CPU, RAM, status). Both are driven by a single script (`status_led.py`) and one service. Near the end there is a hands-on **Troubleshooting** chapter with the pitfalls from a real-world setup, followed by the changelog and the license.
 
 ## What the LED shows
 
 - **LED green** — normal operation; bright flicker on disk activity
 - **LED red/green alternating every second** — over-temperature (threshold configurable)
+- **LED white blinking fast** — SMART disk health failed (optional)
+- **LED orange blinking** — fan warning, e.g. fan stalled (optional)
 - **LED blue blinking** — no network connection
 - **LED magenta blinking** — backup failed
+- **LED yellow blinking** — low free disk space
 - **LED cyan pulsing** — backup running
-- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text
+- **LED amber pulsing** — high CPU load
+- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text; further pages (push button) show uptime, network throughput, and — if enabled — disk temperature and fan speed
+
+> All states and thresholds are configurable in `/etc/status-led/config.toml` (see section 8). The optional SMART and fan states are off by default.
 
 ---
 
@@ -152,6 +166,8 @@ sudo /opt/status-led-venv/bin/pip install adafruit-circuitpython-ssd1306 pillow
 > **Note:** With the venv variant, use the interpreter from the venv in the service (section 10):
 > `ExecStart=/opt/status-led-venv/bin/python /usr/local/bin/status_led.py`
 
+> **Optional (SMART state):** to use the disk-health state, also install smartmontools — `sudo apt install -y smartmontools`. CPU load, disk space and network throughput need no extra packages (pure stdlib).
+
 ---
 
 ## 7. Enable I2C, check the OLED, (PWM:) disable audio
@@ -187,34 +203,64 @@ sudo i2cdetect -y 1
 
 ## 8. Adjust the configuration
 
-Open the configuration block at the top of `status_led.py` (excerpt):
+There are two ways to configure the script. **Recommended: a TOML file** — you keep your settings separate from the code, so a script update never overwrites them.
 
-```python
-sudo nano /usr/local/bin/status_led.py
+### Configuration file (recommended)
 
-@dataclass
-class Config:
-    led_type: str = "ws2812"        # PWM (recommended); SPI: "ws2812-spi"
-    ws_count: int = 1               # the actual number of LEDs!
-    ws_brightness: float = 0.50     # master brightness 0..1
-    ws_pixel_order: str = "GRB"     # standard WS2812B; rarely "RGB"
-    oled_enabled: bool = True       # drive the OLED in parallel
-    oled_addr: int = 0x3C           # I2C address (see i2cdetect)
-    temp_threshold_c: float = 70.0  # over-temperature threshold in degrees C
-    net_check_host: str = "1.1.1.1" # internet check; for LAN use the gateway IP
-    button_enabled: bool = True     # push button on GPIO17
-    button_pin: int = 17            # BCM pin, button to GND (internal pull-up)
-    button_long_press_s: float = 5.0  # hold this long -> reboot
-    oled_page_timeout_s: float = 30.0 # auto-return to the overview (page 0)
+The script reads `/etc/status-led/config.toml` on start (override with `--config /path`). Every key is optional; missing keys fall back to the defaults. Copy the template from this repo and edit it:
+
+```bash
+sudo mkdir -p /etc/status-led
+sudo cp config.example.toml /etc/status-led/config.toml
+sudo nano /etc/status-led/config.toml
 ```
 
+```toml
+led_type = "ws2812"          # "ws2812" (PWM) | "ws2812-spi" | "analog" | "console"
+
+[led]
+ws_count       = 1           # the actual number of LEDs!
+ws_brightness  = 0.50        # master brightness 0..1
+ws_pixel_order = "GRB"       # standard WS2812B; rarely "RGB"
+
+[oled]
+enabled = true
+addr    = 0x3C               # I2C address (see i2cdetect)
+
+[temp]
+threshold_c = 70.0           # over-temperature threshold in degrees C
+
+[network]
+check_host = "1.1.1.1"       # internet check; for LAN use the gateway IP
+
+[button]
+enabled      = true          # push button on GPIO17
+long_press_s = 5.0           # hold this long -> reboot
+
+# Optional new states (see section 13):
+[cpuload]
+threshold = 0.0              # 1-min load threshold; 0 = auto (= number of cores)
+[diskspace]
+min_free_percent = 10.0      # warn below this much free space
+[smart]
+enabled = false              # disk health via smartctl (needs smartmontools + root)
+[fan]
+enabled = false              # fan RPM/warning (needs a hwmon tach)
+```
+
+The full list of keys with comments is in [`config.example.toml`](config.example.toml). Sections (`[led]`, `[temp]`, …) group the keys; unknown keys are reported in the log and ignored. After editing, restart the service: `sudo systemctl restart status-led.service`.
+
 - **`led_type`** — `"ws2812"` (PWM) or `"ws2812-spi"` (SPI)
-- **`ws_count`** — **exactly** the number of your LEDs; too low → surplus LEDs keep their old value
-- **`ws_pixel_order`** — almost always `"GRB"`; only change it if the colour test says so
-- **`ws_brightness`** — master dimmer; WS2812B are very bright, 0.2–0.5 is usually pleasant
-- **`button_pin`** — BCM pin of the push button (default GPIO17 / pin 11)
-- **`button_long_press_s`** — hold time that triggers a reboot (default 5 s)
-- **`oled_page_timeout_s`** — after this idle time the display returns to the overview
+- **`led.ws_count`** — **exactly** the number of your LEDs; too low → surplus LEDs keep their old value
+- **`led.ws_pixel_order`** — almost always `"GRB"`; only change it if the colour test says so
+- **`led.ws_brightness`** — master dimmer; WS2812B are very bright, 0.2–0.5 is usually pleasant
+- **`button.pin`** — BCM pin of the push button (default GPIO17 / pin 11)
+- **`button.long_press_s`** — hold time that triggers a reboot (default 5 s)
+- **`oled.page_timeout_s`** — after this idle time the display returns to the overview
+
+### Alternative: edit the defaults in the script
+
+Without a config file, the defaults in the `Config` dataclass at the top of `status_led.py` apply. You can edit them directly (`sudo nano /usr/local/bin/status_led.py`), but the config file is cleaner and survives updates.
 
 ---
 
@@ -252,6 +298,16 @@ PYEOF
 ```bash
 python3 /usr/local/bin/status_led.py    # stop with Ctrl+C
 ```
+
+### Unit tests (status logic)
+
+The status logic (priorities, hysteresis, config mapping) has unit tests that run **without hardware** — they only build a `Context` and check the result. Run them from the repository:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+No extra packages are needed (stdlib `unittest` + `tomllib`). This is the quickest way to confirm a change to the states or the config loader did not break anything.
 
 ---
 
@@ -302,9 +358,9 @@ journalctl -u status-led -f
 
 A push button on **GPIO17 (pin 11)** controls the display and can reboot the Pi:
 
-- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview; pages 1–4 each show one line (IP, CPU, RAM, status) on its own in a **large, auto-fitted font**. After the last page it wraps back to the overview.
-- **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled_page_timeout_s`.
-- **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…”, the LED turns red, then `systemctl reboot` runs. The hold time is set by `button_long_press_s`.
+- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview; the following pages each show one value on its own in a **large, auto-fitted font**: IP, CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
+- **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled.page_timeout_s`.
+- **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…”, the LED turns red, then `systemctl reboot` runs. The hold time is set by `button.long_press_s`.
 
 The reboot needs root privileges — with the recommended PWM setup the service already runs as `User=root`, so it works out of the box. For the SPI variant under a normal user you would need a sudoers/polkit rule. The button uses Blinka’s `digitalio` and needs no extra package. Disable it with `--no-button` or `button_enabled = False`.
 
@@ -332,13 +388,19 @@ fi
 
 ## 13. Reference: states, LED colour and OLED text
 
-| State                 | LED colour & pattern  | OLED text         | Prio |
-|-----------------------|-----------------------|-------------------|------|
-| Over-temperature      | Red/green, 1 Hz       | UEBERTEMPERATUR!  | 100  |
-| No network            | Blue, 2 Hz blinking   | Kein Netzwerk     | 80   |
-| Backup failed         | Magenta, 2 Hz         | Backup-Fehler!    | 70   |
-| Backup running        | Cyan, pulsing         | Backup laeuft...  | 40   |
-| Normal operation      | Green (bright on I/O) | Normalbetrieb     | 0    |
+| State                 | LED colour & pattern  | OLED text         | Prio | Enabled by default |
+|-----------------------|-----------------------|-------------------|------|--------------------|
+| Over-temperature      | Red/green, 1 Hz       | UEBERTEMPERATUR!  | 100  | yes                |
+| SMART disk failure    | White, 3 Hz blinking  | SMART-Fehler!     | 90   | no (`smart`)       |
+| Fan warning           | Orange, 2 Hz blinking | Luefter-Warnung!  | 85   | no (`fan`)         |
+| No network            | Blue, 2 Hz blinking   | Kein Netzwerk     | 80   | yes                |
+| Backup failed         | Magenta, 2 Hz         | Backup-Fehler!    | 70   | yes                |
+| Low disk space        | Yellow, 1 Hz blinking | Speicher voll!    | 60   | yes (`diskspace`)  |
+| Backup running        | Cyan, pulsing         | Backup laeuft...  | 40   | yes                |
+| High CPU load         | Amber, pulsing        | CPU-Last hoch     | 30   | yes (`cpuload`)    |
+| Normal operation      | Green (bright on I/O) | Normalbetrieb     | 0    | yes                |
+
+The SMART and fan states are **off by default** because they need extra software or specific hardware: SMART needs `smartmontools` (`sudo apt install -y smartmontools`) and root, and the fan tach must be exposed under `/sys/class/hwmon` (e.g. the official Pi case fan or a PoE HAT). Enable them in the config (`[smart] enabled = true`, `[fan] enabled = true`). The fan only *warns* when `fan.warn_below_rpm` is set above 0; otherwise it just shows the RPM on the OLED.
 
 When several states are active, the one with the highest priority wins (for both LED colour and OLED text). The OLED also permanently shows IP, CPU temperature + 1-minute load and RAM.
 
@@ -362,6 +424,8 @@ STATUSES.append(StatusDef("my_state", priority=50,
                           render=render_my_state))
 STATUS_TEXT["my_state"] = "My text"
 ```
+
+The built-in optional states (`smart`, `fan`, `cpuload`, `diskspace`) follow the same pattern — their condition functions simply return `False` when disabled in the config, so toggling `[smart] enabled = …` etc. is all you need to turn them on or off. When you add a state with its own settings, add the fields to the `Config` dataclass and a mapping entry in `CONFIG_MAP` so they can be set from the TOML file too. The status logic is covered by the tests in `tests/` — add a case there for your new state.
 
 ---
 
@@ -435,3 +499,33 @@ journalctl -u status-led -e            # service log with errors
 ---
 
 *Tested, working configuration: `led_type = "ws2812"` (PWM, GPIO18), `ws_pixel_order = "GRB"`, `ws_count = 1`, service as `User=root`, onboard audio disabled, LED VDD at 3.3 V.*
+
+---
+
+## 16. Changelog
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.1.0] — 2026-06-27
+
+**Added**
+- Configuration file in TOML format (`/etc/status-led/config.toml`, override with `--config`) — no need to edit the script, and your settings survive updates. Template: `config.example.toml`.
+- New states: SMART disk health (optional), fan warning (optional), low free disk space, high CPU load (with hysteresis).
+- Extra OLED pages: uptime, network throughput, disk temperature, fan speed.
+- GPIO17 push button: short press cycles the display pages, long press (≥ 5 s) reboots.
+- Unit tests for the status logic and the config loader (`python3 -m unittest discover -s tests`).
+- MIT license.
+
+### [1.0.0] — 2026-06-27
+
+- Initial release: WS2812B status LED + SSD1306 OLED, driven by a single script and one systemd service.
+- States: over-temperature (with hysteresis), no network, backup failed/running, normal operation.
+- Documentation in English and German, plus PDF guides.
+
+---
+
+## 17. License
+
+This project is released under the **MIT License**. You may use, modify and distribute it freely, including commercially, as long as the copyright notice and the license text are retained. The full text is in the [LICENSE](LICENSE) file.
+
+Copyright © 2026 Silvio Sternitzke

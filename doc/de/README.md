@@ -1,17 +1,31 @@
 # Installationsanleitung — RGB-Status-LED (WS2812B) + OLED-Display (SSD1306) für Raspberry Pi 4
 
+---
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+</p>
+
+---
+
 [English](../../README.md) · **Deutsch**
 
-Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED (SSD1306 / Adafruit PiOLED) auf einem Raspberry Pi 4 ein. Die LED zeigt den Systemzustand per Farbe, das OLED parallel als Klartext (IP, CPU, RAM, Status). Beides steuert ein einziges Skript (`status_led.py`) und ein Dienst. Am Ende findest du eine Praxis-Rubrik **Troubleshooting** mit den Stolperfallen aus dem echten Aufbau.
+Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED (SSD1306 / Adafruit PiOLED) auf einem Raspberry Pi 4 ein. Die LED zeigt den Systemzustand per Farbe, das OLED parallel als Klartext (IP, CPU, RAM, Status). Beides steuert ein einziges Skript (`status_led.py`) und ein Dienst. Gegen Ende findest du eine Praxis-Rubrik **Troubleshooting** mit den Stolperfallen aus dem echten Aufbau, gefolgt vom Changelog und der Lizenz.
 
 ## Anzeige im Überblick
 
 - **LED grün** — Normalbetrieb; hell aufflackernd bei Disk-Aktivität
 - **LED rot/grün im Sekundentakt** — Übertemperatur (Schwelle konfigurierbar)
+- **LED weiß schnell blinkend** — SMART-Festplattenfehler (optional)
+- **LED orange blinkend** — Lüfter-Warnung, z. B. Lüfter steht (optional)
 - **LED blau blinkend** — keine Netzwerkverbindung
 - **LED magenta blinkend** — Backup fehlgeschlagen
+- **LED gelb blinkend** — wenig freier Speicherplatz
 - **LED cyan pulsierend** — Backup läuft
-- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext
+- **LED bernstein pulsierend** — hohe CPU-Last
+- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext; weitere Seiten (Taster) zeigen Uptime, Netzwerk-Durchsatz und — falls aktiviert — Festplattentemperatur und Lüfterdrehzahl
+
+> Alle Zustände und Schwellen sind in `/etc/status-led/config.toml` konfigurierbar (siehe Abschnitt 8). Die optionalen SMART- und Lüfter-Zustände sind standardmäßig aus.
 
 ---
 
@@ -152,6 +166,8 @@ sudo /opt/status-led-venv/bin/pip install adafruit-circuitpython-ssd1306 pillow
 > **Hinweis:** Bei der venv-Variante im Dienst (Abschnitt 10) den Interpreter aus dem venv verwenden:
 > `ExecStart=/opt/status-led-venv/bin/python /usr/local/bin/status_led.py`
 
+> **Optional (SMART-Zustand):** Für den Festplatten-Gesundheitszustand zusätzlich smartmontools installieren — `sudo apt install -y smartmontools`. CPU-Last, Speicherplatz und Netzwerk-Durchsatz brauchen keine Zusatzpakete (reine Standardbibliothek).
+
 ---
 
 ## 7. I2C aktivieren, OLED prüfen, (PWM:) Audio deaktivieren
@@ -187,34 +203,64 @@ sudo i2cdetect -y 1
 
 ## 8. Konfiguration anpassen
 
-Den Konfigurationsblock am Anfang von `status_led.py` öffnen (Auszug):
+Es gibt zwei Wege. **Empfohlen: eine TOML-Datei** — so bleiben deine Einstellungen vom Code getrennt und ein Skript-Update überschreibt sie nicht.
 
-```python
-sudo nano /usr/local/bin/status_led.py
+### Konfigurationsdatei (empfohlen)
 
-@dataclass
-class Config:
-    led_type: str = "ws2812"        # PWM (empfohlen); SPI: "ws2812-spi"
-    ws_count: int = 1               # tatsaechliche Anzahl LEDs!
-    ws_brightness: float = 0.50     # Master-Helligkeit 0..1
-    ws_pixel_order: str = "GRB"     # Standard-WS2812B; selten "RGB"
-    oled_enabled: bool = True       # OLED parallel ansteuern
-    oled_addr: int = 0x3C           # I2C-Adresse (siehe i2cdetect)
-    temp_threshold_c: float = 70.0  # Schwelle Uebertemperatur in Grad C
-    net_check_host: str = "1.1.1.1" # Internet-Check; fuer LAN die Gateway-IP
-    button_enabled: bool = True     # Taster an GPIO17
-    button_pin: int = 17            # BCM-Pin, Taster gegen GND (interner Pull-up)
-    button_long_press_s: float = 5.0  # so lange halten -> Neustart
-    oled_page_timeout_s: float = 30.0 # Auto-Ruecksprung auf Seite 0
+Das Skript liest beim Start `/etc/status-led/config.toml` (über `--config /pfad` änderbar). Jeder Schlüssel ist optional; fehlende Schlüssel nutzen die Standardwerte. Vorlage aus dem Paket kopieren und anpassen:
+
+```bash
+sudo mkdir -p /etc/status-led
+sudo cp config.example.toml /etc/status-led/config.toml
+sudo nano /etc/status-led/config.toml
 ```
 
+```toml
+led_type = "ws2812"          # "ws2812" (PWM) | "ws2812-spi" | "analog" | "console"
+
+[led]
+ws_count       = 1           # tatsaechliche Anzahl LEDs!
+ws_brightness  = 0.50        # Master-Helligkeit 0..1
+ws_pixel_order = "GRB"       # Standard-WS2812B; selten "RGB"
+
+[oled]
+enabled = true
+addr    = 0x3C               # I2C-Adresse (siehe i2cdetect)
+
+[temp]
+threshold_c = 70.0           # Schwelle Uebertemperatur in Grad C
+
+[network]
+check_host = "1.1.1.1"       # Internet-Check; fuer LAN die Gateway-IP
+
+[button]
+enabled      = true          # Taster an GPIO17
+long_press_s = 5.0           # so lange halten -> Neustart
+
+# Optionale neue Zustaende (siehe Abschnitt 13):
+[cpuload]
+threshold = 0.0              # 1-Minuten-Load-Schwelle; 0 = automatisch (= Anzahl Kerne)
+[diskspace]
+min_free_percent = 10.0      # Warnung unter so viel freiem Platz
+[smart]
+enabled = false              # Festplatten-Gesundheit via smartctl (smartmontools + root)
+[fan]
+enabled = false              # Luefterdrehzahl/-warnung (braucht hwmon-Tacho)
+```
+
+Die vollständige Schlüsselliste mit Kommentaren steht in [`config.example.toml`](../../config.example.toml). Sektionen (`[led]`, `[temp]`, …) gruppieren die Schlüssel; unbekannte Schlüssel werden im Log gemeldet und ignoriert. Nach dem Bearbeiten den Dienst neu starten: `sudo systemctl restart status-led.service`.
+
 - **`led_type`** — `"ws2812"` (PWM) oder `"ws2812-spi"` (SPI)
-- **`ws_count`** — **genau** die Anzahl deiner LEDs; zu niedrig → überzählige LEDs bleiben auf altem Wert
-- **`ws_pixel_order`** — fast immer `"GRB"`; nur ändern, wenn der Farbtest es zeigt
-- **`ws_brightness`** — Master-Dimmer; WS2812B sind sehr hell, 0.2–0.5 ist meist angenehm
-- **`button_pin`** — BCM-Pin des Tasters (Standard GPIO17 / Pin 11)
-- **`button_long_press_s`** — Haltedauer, die einen Neustart auslöst (Standard 5 s)
-- **`oled_page_timeout_s`** — nach dieser Untätigkeit springt das Display zurück zur Übersicht
+- **`led.ws_count`** — **genau** die Anzahl deiner LEDs; zu niedrig → überzählige LEDs bleiben auf altem Wert
+- **`led.ws_pixel_order`** — fast immer `"GRB"`; nur ändern, wenn der Farbtest es zeigt
+- **`led.ws_brightness`** — Master-Dimmer; WS2812B sind sehr hell, 0.2–0.5 ist meist angenehm
+- **`button.pin`** — BCM-Pin des Tasters (Standard GPIO17 / Pin 11)
+- **`button.long_press_s`** — Haltedauer, die einen Neustart auslöst (Standard 5 s)
+- **`oled.page_timeout_s`** — nach dieser Untätigkeit springt das Display zurück zur Übersicht
+
+### Alternative: Standardwerte im Skript ändern
+
+Ohne Konfigurationsdatei gelten die Standardwerte der `Config`-Dataclass am Anfang von `status_led.py`. Du kannst sie direkt bearbeiten (`sudo nano /usr/local/bin/status_led.py`), aber die Konfigurationsdatei ist sauberer und übersteht Updates.
 
 ---
 
@@ -252,6 +298,16 @@ PYEOF
 ```bash
 python3 /usr/local/bin/status_led.py    # Beenden mit Strg+C
 ```
+
+### Unit-Tests (Statuslogik)
+
+Die Statuslogik (Prioritäten, Hysterese, Config-Mapping) hat Unit-Tests, die **ohne Hardware** laufen — sie bauen nur einen `Context` und prüfen das Ergebnis. Aus dem Projektverzeichnis ausführen:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
+Es sind keine Zusatzpakete nötig (Standardbibliothek `unittest` + `tomllib`). Das ist der schnellste Weg zu prüfen, ob eine Änderung an den Zuständen oder am Config-Loader nichts kaputtgemacht hat.
 
 ---
 
@@ -302,9 +358,9 @@ journalctl -u status-led -f
 
 Ein Taster an **GPIO17 (Pin 11)** steuert das Display und kann den Pi neu starten:
 
-- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht; die Seiten 1–4 zeigen je eine Zeile (IP, CPU, RAM, Status) einzeln in **großer, automatisch eingepasster Schrift**. Nach der letzten Seite geht es zurück zur Übersicht.
-- **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled_page_timeout_s`.
-- **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“, die LED wird rot, dann läuft `systemctl reboot`. Die Haltedauer legt `button_long_press_s` fest.
+- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht; die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**: IP, CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
+- **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled.page_timeout_s`.
+- **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“, die LED wird rot, dann läuft `systemctl reboot`. Die Haltedauer legt `button.long_press_s` fest.
 
 Der Neustart braucht Root-Rechte — beim empfohlenen PWM-Setup läuft der Dienst ohnehin als `User=root`, das funktioniert also direkt. Bei der SPI-Variante unter einem normalen Benutzer wäre eine sudoers-/polkit-Regel nötig. Der Taster nutzt Blinkas `digitalio` und braucht kein zusätzliches Paket. Abschalten mit `--no-button` oder `button_enabled = False`.
 
@@ -332,15 +388,21 @@ fi
 
 ## 13. Referenz: Zustände, LED-Farbe und OLED-Text
 
-| Zustand               | LED-Farbe & Muster   | OLED-Text         | Prio |
-|-----------------------|----------------------|-------------------|------|
-| Übertemperatur        | Rot/Grün, 1 Hz       | UEBERTEMPERATUR!  | 100  |
-| Kein Netzwerk         | Blau, 2 Hz blinkend  | Kein Netzwerk     | 80   |
-| Backup fehlgeschlagen | Magenta, 2 Hz        | Backup-Fehler!    | 70   |
-| Backup läuft          | Cyan, pulsierend     | Backup laeuft...  | 40   |
-| Normalbetrieb         | Grün (hell bei I/O)  | Normalbetrieb     | 0    |
+| Zustand               | LED-Farbe & Muster    | OLED-Text         | Prio | Standard aktiv      |
+|-----------------------|-----------------------|-------------------|------|---------------------|
+| Übertemperatur        | Rot/Grün, 1 Hz        | UEBERTEMPERATUR!  | 100  | ja                  |
+| SMART-Fehler          | Weiß, 3 Hz blinkend   | SMART-Fehler!     | 90   | nein (`smart`)      |
+| Lüfter-Warnung        | Orange, 2 Hz blinkend | Luefter-Warnung!  | 85   | nein (`fan`)        |
+| Kein Netzwerk         | Blau, 2 Hz blinkend   | Kein Netzwerk     | 80   | ja                  |
+| Backup fehlgeschlagen | Magenta, 2 Hz         | Backup-Fehler!    | 70   | ja                  |
+| Wenig Speicherplatz   | Gelb, 1 Hz blinkend   | Speicher voll!    | 60   | ja (`diskspace`)    |
+| Backup läuft          | Cyan, pulsierend      | Backup laeuft...  | 40   | ja                  |
+| Hohe CPU-Last         | Bernstein, pulsierend | CPU-Last hoch     | 30   | ja (`cpuload`)      |
+| Normalbetrieb         | Grün (hell bei I/O)   | Normalbetrieb     | 0    | ja                  |
 
 Bei mehreren aktiven Zuständen gewinnt der mit der höchsten Priorität (für LED-Farbe und OLED-Text gleichermaßen). Das OLED zeigt zusätzlich dauerhaft IP, CPU-Temperatur + 1-Minuten-Last und RAM.
+
+Die SMART- und Lüfter-Zustände sind **standardmäßig aus**, weil sie Zusatzsoftware oder bestimmte Hardware brauchen: SMART benötigt `smartmontools` (`sudo apt install -y smartmontools`) und root, und der Lüfter-Tacho muss unter `/sys/class/hwmon` sichtbar sein (z. B. das offizielle Pi-Case-Fan oder ein PoE-HAT). In der Konfiguration aktivieren (`[smart] enabled = true`, `[fan] enabled = true`). Der Lüfter *warnt* nur, wenn `fan.warn_below_rpm` über 0 gesetzt ist; sonst zeigt er nur die Drehzahl auf dem OLED.
 
 ---
 
@@ -360,6 +422,8 @@ STATUSES.append(StatusDef("mein_zustand", priority=50,
                           render=render_mein_zustand))
 STATUS_TEXT["mein_zustand"] = "Mein Text"
 ```
+
+Die eingebauten optionalen Zustände (`smart`, `fan`, `cpuload`, `diskspace`) folgen demselben Muster — ihre Bedingungsfunktionen liefern einfach `False`, wenn sie in der Konfiguration deaktiviert sind. Zum Ein-/Ausschalten genügt also `[smart] enabled = …` usw. Wenn du einen Zustand mit eigenen Einstellungen ergänzt, die Felder in die `Config`-Dataclass und einen Eintrag in `CONFIG_MAP` aufnehmen, damit sie auch aus der TOML-Datei gesetzt werden können. Die Statuslogik ist durch die Tests in `tests/` abgedeckt — dort einen Fall für deinen neuen Zustand ergänzen.
 
 ---
 
@@ -433,3 +497,33 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ---
 
 *Getestete, funktionierende Konfiguration: `led_type = "ws2812"` (PWM, GPIO18), `ws_pixel_order = "GRB"`, `ws_count = 1`, Dienst als `User=root`, Onboard-Audio deaktiviert, LED-VDD an 3,3 V.*
+
+---
+
+## 16. Changelog
+
+Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.1.0] — 2026-06-27
+
+**Hinzugefügt**
+- Konfigurationsdatei im TOML-Format (`/etc/status-led/config.toml`, mit `--config` überschreibbar) — kein Bearbeiten des Skripts nötig, und deine Einstellungen überstehen Updates. Vorlage: `config.example.toml`.
+- Neue Zustände: SMART-Festplattengesundheit (optional), Lüfter-Warnung (optional), wenig freier Speicherplatz, hohe CPU-Last (mit Hysterese).
+- Zusätzliche OLED-Seiten: Uptime, Netzwerk-Durchsatz, Festplattentemperatur, Lüfterdrehzahl.
+- Taster an GPIO17: kurzer Druck schaltet die Display-Seiten weiter, langer Druck (≥ 5 s) startet neu.
+- Unit-Tests für die Statuslogik und den Config-Loader (`python3 -m unittest discover -s tests`).
+- MIT-Lizenz.
+
+### [1.0.0] — 2026-06-27
+
+- Erstveröffentlichung: WS2812B-Status-LED + SSD1306-OLED, gesteuert von einem Skript und einem systemd-Dienst.
+- Zustände: Übertemperatur (mit Hysterese), kein Netzwerk, Backup fehlgeschlagen/läuft, Normalbetrieb.
+- Dokumentation in Deutsch und Englisch, dazu PDF-Anleitungen.
+
+---
+
+## 17. Lizenz
+
+Dieses Projekt steht unter der **MIT-Lizenz**. Du darfst es frei verwenden, ändern und weitergeben (auch kommerziell), solange der Copyright-Hinweis und der Lizenztext erhalten bleiben. Der vollständige Text steht in der Datei [LICENSE](../../LICENSE).
+
+Copyright © 2026 Silvio Sternitzke

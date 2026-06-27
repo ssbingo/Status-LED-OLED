@@ -1,0 +1,75 @@
+# Beispielkonfiguration fuer status_led.py  /  Example configuration
+#
+# Kopieren nach / copy to:  /etc/status-led/config.toml
+#   sudo mkdir -p /etc/status-led
+#   sudo cp config.example.toml /etc/status-led/config.toml
+#
+# Jeder Schluessel ist OPTIONAL - fehlt er, gilt der Standardwert aus dem Skript.
+# Anderer Pfad moeglich:  status_led.py --config /pfad/zu/config.toml
+# Every key is OPTIONAL - missing keys fall back to the script defaults.
+
+led_type = "ws2812"          # "ws2812" (PWM) | "ws2812-spi" | "analog" | "console"
+
+[led]
+ws_count       = 1           # tatsaechliche Anzahl LEDs / actual number of LEDs
+ws_brightness  = 0.50        # 0..1
+ws_pixel_order = "GRB"       # meist GRB, selten RGB
+# pin_red = 17               # nur fuer led_type = "analog"
+# pin_green = 27
+# pin_blue = 22
+# active_high = true
+# ws_pin = 18                # Datenpin fuer PWM (GPIO18)
+
+[oled]
+enabled        = true
+addr           = 0x3C        # i2cdetect -y 1  (manchmal 0x3D)
+poll_s         = 1.0
+page_timeout_s = 30.0        # Auto-Ruecksprung auf Seite 0
+
+[button]
+enabled       = true
+pin           = 17           # BCM, Taster gegen GND (interner Pull-up)
+long_press_s  = 5.0          # >= so lange halten -> Neustart
+
+[temp]
+threshold_c  = 70.0          # ab hier Uebertemperatur
+hysteresis_c = 3.0           # Rueckfall erst bei (Schwelle - Hysterese)
+
+[network]
+check_host         = "1.1.1.1"   # fuer LAN ggf. Gateway-IP
+poll_s             = 5.0
+throughput_enabled = true        # Durchsatz-Anzeige (OLED)
+# iface = "eth0"                 # leer = alle ausser lo summieren
+
+[backup]
+status_path = "/run/status-led/backup"
+
+# --- Neue Zustaende / new states -------------------------------------------
+
+[cpuload]
+enabled    = true
+threshold  = 0.0             # 1-Minuten-Load-Schwelle; 0 = automatisch (= Anzahl Kerne)
+hysteresis = 0.5
+
+[diskspace]
+enabled          = true
+path             = "/"
+min_free_percent = 10.0      # Warnung, wenn weniger frei
+
+[smart]
+enabled  = false             # benoetigt smartmontools + root
+poll_s   = 300.0
+# devices = ["/dev/sda"]     # leer = automatisch (smartctl --scan)
+
+[fan]
+enabled        = false       # nur sinnvoll mit hwmon-Tacho
+warn_below_rpm = 0           # 0 = nur Drehzahl anzeigen, nie warnen
+# hwmon = "/sys/class/hwmon/hwmon0/fan1_input"   # leer = automatisch suchen
+
+[brightness]
+green_idle   = 0.25
+green_active = 1.00
+
+[loop]
+tick_s     = 0.05
+duration_s = 0.0             # 0 = endlos
