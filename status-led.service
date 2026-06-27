@@ -1,0 +1,18 @@
+[Unit]
+Description=RGB Status LED + OLED
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/status_led.py
+Restart=always
+RestartSec=5
+User=root
+RuntimeDirectory=status-led
+#  PWM-Variante (Standard): User=root  -- so lassen
+#  SPI-Variante: User=DEIN_BENUTZERNAME  (NICHT "pi"; muss in Gruppen spi,i2c sein)
+#  venv: ExecStart=/opt/status-led-venv/bin/python /usr/local/bin/status_led.py
+
+[Install]
+WantedBy=multi-user.target
