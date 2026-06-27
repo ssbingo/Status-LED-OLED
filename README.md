@@ -29,6 +29,43 @@ A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Rasp
 
 ---
 
+## Quick install (recommended)
+
+On the Raspberry Pi, run a single command — it installs everything (sources, libraries in a virtual environment, systemd service), enables I2C, and then starts an interactive **configuration wizard** that writes your `config.toml`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ssbingo/Status-LED-OLED/main/install.sh | sudo bash
+```
+
+What it does: checks it is a real Pi → installs `git`, a Python venv and the libraries → clones the repo to `/opt/status-led` → asks you the relevant settings (LED type, count, OLED address via `i2cdetect`, thresholds, optional states) → enables I2C (and SPI for the SPI variant), disables onboard audio for PWM → creates and starts the service. A reboot is offered at the end if interface changes need it.
+
+Afterwards a `status-led` helper command is available:
+
+```bash
+status-led status     # service status
+status-led logs        # live log
+status-led setup       # re-run the configuration wizard
+status-led update      # update to the latest version (see below)
+status-led restart     # restart the service
+```
+
+### Update
+
+When new changes land in the repo, update in place — your `config.toml` is kept:
+
+```bash
+sudo status-led update
+```
+
+It runs `git pull`, refreshes the libraries, restarts the service and reports the old → new version. Because every config key is optional, an existing `config.toml` keeps working after an update; new keys fall back to their defaults.
+
+> Prefer to inspect the script first? Clone and run it instead of piping:
+> `git clone https://github.com/ssbingo/Status-LED-OLED.git && sudo ./Status-LED-OLED/install.sh`
+
+The sections below document the **manual installation** step by step — useful for understanding the details or for a custom setup.
+
+---
+
 ## 1. Requirements
 
 ### Hardware
@@ -505,6 +542,14 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.0] — 2026-06-27
+
+**Added**
+- One-line installer (`install.sh`) for the Raspberry Pi: installs sources and libraries into a virtual environment, enables I2C/SPI, sets up the systemd service.
+- Interactive configuration wizard (`status_led.py --setup`) that writes `config.toml`, including OLED address detection via `i2cdetect`.
+- In-place updater (`update.sh` / `status-led update`) that keeps the existing config, plus a `status-led` helper command (setup/update/status/logs/restart).
+- `--version` flag and `requirements.txt`.
 
 ### [1.1.0] — 2026-06-27
 

@@ -29,6 +29,43 @@ Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED 
 
 ---
 
+## Schnellinstallation (empfohlen)
+
+Auf dem Raspberry Pi genügt ein einziges Kommando — es installiert alles (Quellcode, Bibliotheken in einer virtuellen Umgebung, systemd-Dienst), aktiviert I2C und startet anschließend einen interaktiven **Konfigurations-Assistenten**, der deine `config.toml` schreibt:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ssbingo/Status-LED-OLED/main/install.sh | sudo bash
+```
+
+Ablauf: prüft, ob es ein echter Pi ist → installiert `git`, ein Python-venv und die Bibliotheken → klont das Repo nach `/opt/status-led` → fragt die wichtigen Einstellungen ab (LED-Typ, Anzahl, OLED-Adresse via `i2cdetect`, Schwellen, optionale Zustände) → aktiviert I2C (bei der SPI-Variante auch SPI), deaktiviert Onboard-Audio für PWM → erstellt und startet den Dienst. Am Ende wird ein Neustart angeboten, falls Interface-Änderungen ihn brauchen.
+
+Danach steht der Befehl `status-led` zur Verfügung:
+
+```bash
+status-led status     # Dienststatus
+status-led logs        # Live-Log
+status-led setup       # Konfigurations-Assistent erneut starten
+status-led update      # auf die neueste Version aktualisieren (siehe unten)
+status-led restart     # Dienst neu starten
+```
+
+### Update
+
+Wenn neue Änderungen ins Repo kommen, direkt vor Ort aktualisieren — deine `config.toml` bleibt erhalten:
+
+```bash
+sudo status-led update
+```
+
+Das führt `git pull` aus, frischt die Bibliotheken auf, startet den Dienst neu und meldet die Version vorher → nachher. Da jeder Konfigurationsschlüssel optional ist, funktioniert eine vorhandene `config.toml` nach dem Update sofort weiter; neue Schlüssel fallen auf ihre Standardwerte zurück.
+
+> Lieber das Skript vorher ansehen? Statt per Pipe lieber klonen und ausführen:
+> `git clone https://github.com/ssbingo/Status-LED-OLED.git && sudo ./Status-LED-OLED/install.sh`
+
+Die folgenden Abschnitte dokumentieren die **manuelle Installation** Schritt für Schritt — nützlich, um die Details zu verstehen oder für einen eigenen Aufbau.
+
+---
+
 ## 1. Voraussetzungen
 
 ### Hardware
@@ -503,6 +540,14 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.0] — 2026-06-27
+
+**Hinzugefügt**
+- Ein-Zeilen-Installer (`install.sh`) für den Raspberry Pi: installiert Quellcode und Bibliotheken in eine virtuelle Umgebung, aktiviert I2C/SPI, richtet den systemd-Dienst ein.
+- Interaktiver Konfigurations-Assistent (`status_led.py --setup`), der die `config.toml` schreibt — inkl. OLED-Adresserkennung via `i2cdetect`.
+- In-place-Updater (`update.sh` / `status-led update`), der die vorhandene Konfiguration behält, sowie ein `status-led`-Komfortbefehl (setup/update/status/logs/restart).
+- `--version`-Flag und `requirements.txt`.
 
 ### [1.1.0] — 2026-06-27
 

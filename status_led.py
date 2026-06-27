@@ -49,6 +49,8 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
+__version__ = "1.2.0"
+
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
 # ============================================================================
@@ -1378,8 +1380,202 @@ def run(cfg: Config, simulate: bool = False) -> None:
             button.close()
 
 
+# ============================================================================
+# Konfigurations-Assistent  --  status_led.py --setup
+# ============================================================================
+#
+# Geführter Textdialog, der eine config.toml erzeugt. Bewusst ohne Zusatzpakete
+# (nur input()), damit er überall laeuft (auch ueber 'curl | sudo bash' via
+# Eingabeumleitung </dev/tty).
+
+
+def _ask(prompt: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default != "" else ""
+    try:
+        ans = input(f"{prompt}{suffix}: ").strip()
+    except EOFError:
+        ans = ""
+    return ans or default
+
+
+def _ask_yesno(prompt: str, default: bool) -> bool:
+    d = "J/n" if default else "j/N"
+    ans = _ask(f"{prompt} ({d})", "").lower()
+    if not ans:
+        return default
+    return ans in ("j", "ja", "y", "yes")
+
+
+def _ask_choice(prompt: str, options: list[str], default: str) -> str:
+    print(f"\n{prompt}")
+    for i, opt in enumerate(options, 1):
+        marker = " (Standard)" if opt == default else ""
+        print(f"  {i}) {opt}{marker}")
+    while True:
+        ans = _ask("Auswahl (Nummer)", str(options.index(default) + 1))
+        if ans.isdigit() and 1 <= int(ans) <= len(options):
+            return options[int(ans) - 1]
+        print("  Bitte eine gueltige Nummer eingeben.")
+
+
+def _ask_float(prompt: str, default: float) -> float:
+    while True:
+        ans = _ask(prompt, str(default))
+        try:
+            return float(ans)
+        except ValueError:
+            print("  Bitte eine Zahl eingeben.")
+
+
+def _ask_int(prompt: str, default: int) -> int:
+    while True:
+        ans = _ask(prompt, str(default))
+        try:
+            return int(ans)
+        except ValueError:
+            print("  Bitte eine ganze Zahl eingeben.")
+
+
+def detect_i2c_addresses() -> list[str]:
+    """Liefert die auf dem I2C-Bus gefundenen Adressen (z. B. ['0x3c'])."""
+    try:
+        out = subprocess.run(["i2cdetect", "-y", "1"],
+                             capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found: list[str] = []
+    for line in out.splitlines()[1:]:
+        _, _, rest = line.partition(":")
+        for tok in rest.split():
+            if tok not in ("--", "UU"):
+                found.append("0x" + tok)
+    return found
+
+
+def _render_config_toml(s: dict) -> str:
+    def b(v):  # bool -> TOML
+        return "true" if v else "false"
+    lines = [
+        "# Erzeugt von status_led.py --setup",
+        f'led_type = "{s["led_type"]}"',
+        "",
+        "[led]",
+        f'ws_count       = {s["ws_count"]}',
+        f'ws_brightness  = {s["ws_brightness"]}',
+        f'ws_pixel_order = "{s["ws_pixel_order"]}"',
+        "",
+        "[oled]",
+        f"enabled = {b(s['oled_enabled'])}",
+        f"addr    = {s['oled_addr']}",
+        "",
+        "[button]",
+        f"enabled      = {b(s['button_enabled'])}",
+        "",
+        "[temp]",
+        f"threshold_c = {s['temp_threshold_c']}",
+        "",
+        "[network]",
+        f'check_host = "{s["net_check_host"]}"',
+        "",
+        "[cpuload]",
+        f"enabled = {b(s['cpuload_enabled'])}",
+        "",
+        "[diskspace]",
+        f"enabled          = {b(s['diskspace_enabled'])}",
+        f"min_free_percent = {s['diskspace_min_free_percent']}",
+        "",
+        "[smart]",
+        f"enabled = {b(s['smart_enabled'])}",
+        "",
+        "[fan]",
+        f"enabled        = {b(s['fan_enabled'])}",
+        f"warn_below_rpm = {s['fan_warn_below_rpm']}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def run_setup(config_path: str) -> int:
+    """Interaktiver Assistent: fragt die wichtigsten Optionen ab und schreibt config.toml."""
+    d = Config()  # Defaults als Vorgabewerte
+    print("=" * 60)
+    print(" Status-LED + OLED  --  Konfigurations-Assistent")
+    print("=" * 60)
+    print("Enter uebernimmt jeweils den Vorgabewert in [Klammern].\n")
+
+    s: dict = {}
+    s["led_type"] = _ask_choice(
+        "LED-Typ?", ["ws2812", "ws2812-spi", "analog", "console"], d.led_type)
+    is_ws = s["led_type"].startswith("ws2812")
+    s["ws_count"] = _ask_int("Anzahl LEDs", d.ws_count) if is_ws else d.ws_count
+    s["ws_brightness"] = _ask_float("Helligkeit 0..1", d.ws_brightness) if is_ws else d.ws_brightness
+    s["ws_pixel_order"] = (_ask_choice("Farbreihenfolge?", ["GRB", "RGB"], d.ws_pixel_order)
+                           if is_ws else d.ws_pixel_order)
+
+    # OLED
+    s["oled_enabled"] = _ask_yesno("OLED-Display verwenden?", d.oled_enabled)
+    addr = d.oled_addr
+    if s["oled_enabled"]:
+        found = detect_i2c_addresses()
+        if found:
+            print(f"  Auf dem I2C-Bus gefunden: {', '.join(found)}")
+            default_addr = found[0] if found else hex(d.oled_addr)
+        else:
+            print("  (i2cdetect fand nichts - Standardadresse verwenden oder spaeter pruefen)")
+            default_addr = hex(d.oled_addr)
+        raw = _ask("OLED I2C-Adresse (hex)", default_addr)
+        try:
+            addr = int(raw, 16) if isinstance(raw, str) else int(raw)
+        except ValueError:
+            addr = d.oled_addr
+    s["oled_addr"] = hex(addr)
+
+    s["button_enabled"] = _ask_yesno("Taster an GPIO17 verwenden?", d.button_enabled)
+    s["temp_threshold_c"] = _ask_float("Uebertemperatur-Schwelle (Grad C)", d.temp_threshold_c)
+    s["net_check_host"] = _ask("Host fuer Netzwerk-Check (LAN: Gateway-IP)", d.net_check_host)
+
+    print("\n-- Optionale Zustaende --")
+    s["cpuload_enabled"] = _ask_yesno("Warnung bei hoher CPU-Last?", d.cpuload_enabled)
+    s["diskspace_enabled"] = _ask_yesno("Warnung bei wenig Speicherplatz?", d.diskspace_enabled)
+    s["diskspace_min_free_percent"] = (
+        _ask_float("  Schwelle: Warnung unter ... % frei", d.diskspace_min_free_percent)
+        if s["diskspace_enabled"] else d.diskspace_min_free_percent)
+    s["smart_enabled"] = _ask_yesno("SMART-Festplattengesundheit? (braucht smartmontools + root)",
+                                    d.smart_enabled)
+    s["fan_enabled"] = _ask_yesno("Luefterdrehzahl/-warnung? (braucht hwmon-Tacho)", d.fan_enabled)
+    s["fan_warn_below_rpm"] = (
+        _ask_int("  Warnung unter ... U/min (0 = nur anzeigen)", d.fan_warn_below_rpm)
+        if s["fan_enabled"] else d.fan_warn_below_rpm)
+
+    toml_text = _render_config_toml(s)
+    print("\n" + "-" * 60)
+    print(toml_text)
+    print("-" * 60)
+    if not _ask_yesno(f"Diese Konfiguration nach {config_path} schreiben?", True):
+        print("Abgebrochen - nichts geschrieben.")
+        return 1
+
+    path = Path(config_path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            backup = path.with_suffix(path.suffix + ".bak")
+            backup.write_text(path.read_text())
+            print(f"Vorhandene Datei gesichert: {backup}")
+        path.write_text(toml_text)
+    except OSError as e:
+        print(f"Fehler beim Schreiben ({e}). Mit 'sudo' erneut versuchen?", file=sys.stderr)
+        return 1
+    print(f"Geschrieben: {path}")
+    print("Dienst neu starten mit:  sudo systemctl restart status-led.service")
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RGB-Status-LED + OLED fuer Raspberry Pi 4")
+    p.add_argument("--version", action="version", version=f"status-led {__version__}")
+    p.add_argument("--setup", action="store_true",
+                   help="interaktiver Konfigurations-Assistent (schreibt config.toml)")
     p.add_argument("--simulate", action="store_true", help="ohne Hardware im Terminal testen")
     p.add_argument("--config", default=DEFAULT_CONFIG_PATH,
                    help=f"Pfad zur TOML-Konfiguration (Standard: {DEFAULT_CONFIG_PATH})")
@@ -1394,6 +1590,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv if argv is not None else sys.argv[1:])
+    if args.setup:
+        sys.exit(run_setup(args.config))
     # Reihenfolge: Defaults < Konfigurationsdatei < CLI-Argumente
     cfg = load_config(args.config, required=(args.config != DEFAULT_CONFIG_PATH))
     if args.led_type:

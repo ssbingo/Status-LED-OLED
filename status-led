@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+#
+# Kleiner Komfort-Wrapper fuer die haeufigen Aufgaben.
+# Wird von install.sh nach /usr/local/bin/status-led kopiert.
+
+set -euo pipefail
+
+INSTALL_DIR="/opt/status-led"
+VENV_PY="$INSTALL_DIR/venv/bin/python"
+CONFIG_FILE="/etc/status-led/config.toml"
+
+usage() {
+    cat <<EOF
+status-led - Verwaltung der Status-LED + OLED
+
+Verwendung: status-led <befehl>
+
+  setup      Konfigurations-Assistent (schreibt $CONFIG_FILE)
+  update     auf die neueste Version aktualisieren
+  status     Dienststatus anzeigen
+  logs       Live-Log anzeigen (Strg+C beendet)
+  restart    Dienst neu starten
+  version    installierte Version anzeigen
+EOF
+}
+
+case "${1:-}" in
+    setup)   exec sudo "$VENV_PY" "$INSTALL_DIR/status_led.py" --setup --config "$CONFIG_FILE" ;;
+    update)  exec sudo "$INSTALL_DIR/update.sh" ;;
+    status)  exec systemctl status status-led.service ;;
+    logs)    exec journalctl -u status-led -f ;;
+    restart) exec sudo systemctl restart status-led.service ;;
+    version) exec "$VENV_PY" "$INSTALL_DIR/status_led.py" --version ;;
+    ""|-h|--help|help) usage ;;
+    *) echo "Unbekannter Befehl: $1"; echo; usage; exit 1 ;;
+esac

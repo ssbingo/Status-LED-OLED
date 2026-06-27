@@ -1,0 +1,11 @@
+# Python-Bibliotheken fuer status_led.py (Installation ins venv durch install.sh)
+# Es werden bewusst alle LED-Backends installiert, damit ein Wechsel des
+# led_type spaeter ohne Neuinstallation moeglich ist.
+
+adafruit-blinka
+adafruit-circuitpython-neopixel
+adafruit-circuitpython-neopixel-spi
+adafruit-circuitpython-ssd1306
+rpi_ws281x
+pillow
+gpiozero
