@@ -23,7 +23,7 @@ Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED 
 - **LED gelb blinkend** — wenig freier Speicherplatz
 - **LED cyan pulsierend** — Backup läuft
 - **LED bernstein pulsierend** — hohe CPU-Last
-- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext; weitere Seiten (Taster) zeigen Uptime, Netzwerk-Durchsatz und — falls aktiviert — Festplattentemperatur und Lüfterdrehzahl
+- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext; weitere Seiten (Taster) zeigen die installierte Version, den Hostnamen, Uptime, Netzwerk-Durchsatz und — falls aktiviert — Festplattentemperatur und Lüfterdrehzahl
 
 > Alle Zustände und Schwellen sind in `/etc/status-led/config.toml` konfigurierbar (siehe Abschnitt 8). Die optionalen SMART- und Lüfter-Zustände sind standardmäßig aus.
 
@@ -396,7 +396,7 @@ journalctl -u status-led -f
 
 Ein Taster an **GPIO17 (Pin 11)** steuert das Display und kann den Pi neu starten:
 
-- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht; die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**: IP, CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
+- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht (IP, CPU, RAM, Status); die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**, in dieser Reihenfolge: **installierte Version** (zuerst), IP, **Hostname** (direkt nach IP), CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
 - **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled.page_timeout_s`.
 - **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“ und die LED wird rot; diese Meldung bleibt `button.reboot_message_s` Sekunden stehen (Standard 3), bevor `systemctl reboot` läuft. Die Haltedauer legt `button.long_press_s` fest.
 
@@ -555,6 +555,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.4] — 2026-06-27
+
+**Hinzugefügt**
+- Zwei neue OLED-Einzelseiten im Taster-Durchsteppen: die **installierte Version** (zuerst angezeigt) und der **Hostname** (direkt nach der IP-Seite). Die Übersicht auf Seite 0 bleibt unverändert (IP/CPU/RAM/Status).
 
 ### [1.2.3] — 2026-06-27
 

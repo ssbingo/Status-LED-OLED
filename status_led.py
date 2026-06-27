@@ -49,7 +49,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.2.3"
+__version__ = "1.2.4"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -996,6 +996,13 @@ def get_ip() -> str:
         s.close()
 
 
+def get_hostname() -> str:
+    try:
+        return socket.gethostname() or "n/a"
+    except OSError:
+        return "n/a"
+
+
 def get_mem_mb() -> tuple[int, int]:
     try:
         info = {}
@@ -1038,13 +1045,16 @@ def fmt_rate(bps: float) -> str:
 
 
 def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
-    """Geordnete (Label, Wert)-Paare. Die ersten vier bilden die Uebersicht (Seite 0),
-    alle weiteren erscheinen nur als grosse Einzelseiten. Optionale Felder haengen
-    von den aktivierten Funktionen ab (siehe oled_big_page_count)."""
+    """Geordnete (Label, Wert)-Paare = die grossen Einzelseiten ('Steps' per Taster).
+    Reihenfolge: zuerst die Version, dann IP gefolgt vom Hostnamen, danach der Rest.
+    Optionale Felder haengen von den aktivierten Funktionen ab (siehe oled_big_page_count).
+    Die Uebersicht (Seite 0) ist davon unabhaengig (siehe oled_lines)."""
     cfg = ctx.cfg
     used, total = get_mem_mb()
     fields: list[tuple[str, str]] = [
+        ("Ver", __version__),
         ("IP", get_ip()),
+        ("Host", get_hostname()),
         ("CPU", f"{ctx.temp_c:.0f}C L{ctx.cpu_load:.2f}"),
         ("RAM", f"{used}/{total}MB"),
         ("Status", STATUS_TEXT.get(status.name, status.name)),
@@ -1067,7 +1077,7 @@ def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
 
 def oled_big_page_count(cfg: Config) -> int:
     """Anzahl grosser Einzelseiten - haengt nur von cfg ab, daher stabil zur Laufzeit."""
-    n = 5  # IP, CPU, RAM, Status, Up
+    n = 7  # Ver, IP, Host, CPU, RAM, Status, Up
     n += int(cfg.net_throughput_enabled)
     n += int(cfg.smart_enabled)
     n += int(cfg.fan_enabled)
@@ -1080,9 +1090,16 @@ def oled_page_count(cfg: Config) -> int:
 
 
 def oled_lines(ctx: Context, status: StatusDef) -> list[str]:
-    """Die vier Textzeilen der Uebersicht (Seite 0)."""
-    f = oled_fields(ctx, status)
-    return [f"{f[0][0]} {f[0][1]}", f"{f[1][0]} {f[1][1]}", f"{f[2][0]} {f[2][1]}", f[3][1]]
+    """Die vier Textzeilen der Uebersicht (Seite 0): IP, CPU, RAM, Status-Text.
+    Bewusst unabhaengig von der Reihenfolge der Einzelseiten (Werte per Label aus
+    oled_fields, damit Format und Uebersicht konsistent bleiben)."""
+    f = dict(oled_fields(ctx, status))
+    return [
+        f"IP {f.get('IP', '')}",
+        f"CPU {f.get('CPU', '')}",
+        f"RAM {f.get('RAM', '')}",
+        f.get("Status", ""),
+    ]
 
 
 class OledStatus:

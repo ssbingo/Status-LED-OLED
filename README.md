@@ -23,7 +23,7 @@ A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Rasp
 - **LED yellow blinking** — low free disk space
 - **LED cyan pulsing** — backup running
 - **LED amber pulsing** — high CPU load
-- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text; further pages (push button) show uptime, network throughput, and — if enabled — disk temperature and fan speed
+- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text; further pages (push button) show the installed version, hostname, uptime, network throughput, and — if enabled — disk temperature and fan speed
 
 > All states and thresholds are configurable in `/etc/status-led/config.toml` (see section 8). The optional SMART and fan states are off by default.
 
@@ -396,7 +396,7 @@ journalctl -u status-led -f
 
 A push button on **GPIO17 (pin 11)** controls the display and can reboot the Pi:
 
-- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview; the following pages each show one value on its own in a **large, auto-fitted font**: IP, CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
+- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview (IP, CPU, RAM, status); the following pages each show one value on its own in a **large, auto-fitted font**, in this order: **installed version** (first), IP, **hostname** (right after IP), CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
 - **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled.page_timeout_s`.
 - **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…” and the LED turns red; this message stays for `button.reboot_message_s` seconds (default 3) before `systemctl reboot` runs. The hold time is set by `button.long_press_s`.
 
@@ -557,6 +557,11 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.4] — 2026-06-27
+
+**Added**
+- Two new OLED single-value pages in the button stepping: the **installed version** (shown first) and the **hostname** (right after the IP page). The page-0 overview is unchanged (IP/CPU/RAM/status).
 
 ### [1.2.3] — 2026-06-27
 

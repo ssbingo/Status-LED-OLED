@@ -128,5 +128,37 @@ class TestStatusText(unittest.TestCase):
             self.assertIn(s.name, sl.STATUS_TEXT, f"kein STATUS_TEXT fuer {s.name}")
 
 
+class TestOledFields(unittest.TestCase):
+    def _fields(self, cfg=None):
+        c = ctx(cfg=cfg) if cfg else ctx()
+        return sl.oled_fields(c, sl.current_status(c))
+
+    def test_version_is_first_step(self):
+        self.assertEqual(self._fields()[0][0], "Ver")
+
+    def test_version_value_matches(self):
+        self.assertEqual(dict(self._fields())["Ver"], sl.__version__)
+
+    def test_hostname_directly_after_ip(self):
+        labels = [label for label, _ in self._fields()]
+        self.assertEqual(labels[labels.index("IP") + 1], "Host")
+
+    def test_page_count_matches_field_count(self):
+        for cfg in (sl.Config(),
+                    sl.Config(smart_enabled=True, fan_enabled=True),
+                    sl.Config(net_throughput_enabled=False)):
+            c = ctx(cfg=cfg)
+            self.assertEqual(sl.oled_big_page_count(cfg),
+                             len(sl.oled_fields(c, sl.current_status(c))))
+
+    def test_overview_stays_ip_cpu_ram_status(self):
+        c = ctx()
+        lines = sl.oled_lines(c, sl.current_status(c))
+        self.assertEqual(len(lines), 4)
+        self.assertTrue(lines[0].startswith("IP "))
+        self.assertTrue(lines[1].startswith("CPU "))
+        self.assertTrue(lines[2].startswith("RAM "))
+
+
 if __name__ == "__main__":
     unittest.main()
