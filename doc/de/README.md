@@ -556,6 +556,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.2.5] — 2026-06-27
+
+**Entfernt**
+- Veraltete PDF-Installationsanleitungen (`doc/en/`, `doc/de/*.pdf`). Die READMEs sind die einzige, gepflegte Dokumentation.
+
 ### [1.2.4] — 2026-06-27
 
 **Hinzugefügt**
@@ -604,7 +609,7 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
 - Erstveröffentlichung: WS2812B-Status-LED + SSD1306-OLED, gesteuert von einem Skript und einem systemd-Dienst.
 - Zustände: Übertemperatur (mit Hysterese), kein Netzwerk, Backup fehlgeschlagen/läuft, Normalbetrieb.
-- Dokumentation in Deutsch und Englisch, dazu PDF-Anleitungen.
+- Dokumentation in Deutsch und Englisch.
 
 ---
 
