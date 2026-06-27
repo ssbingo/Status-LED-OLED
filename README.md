@@ -530,8 +530,8 @@ The following cases come from a real setup — from the service start to the fli
 - **Fix:** Install the DejaVu fonts: `sudo apt install -y fonts-dejavu-core`.
 
 ### ▶ Fan shows `n/a` even though a PoE HAT is installed
-- **Cause:** The PoE/PoE+ HAT fan is firmware-controlled. Without the PoE overlay Linux exposes no fan sensor at all (`status-led diag` shows "weder hwmon-Tacho noch cooling_device"). Third-party PoE HATs with their own fan controller are invisible to Linux entirely.
-- **Fix (official HAT):** add `dtoverlay=rpi-poe` (PoE HAT) or `dtoverlay=rpi-poe-plus` (PoE+ HAT) to `/boot/firmware/config.txt`, reboot, then check `status-led diag` — a `cooling_device` of type `rpi-poe-fan` should appear and the OLED shows the fan stage (`St.x/y`). For a third-party HAT there is no readable value; leave `[fan]` disabled.
+- **Cause:** The PoE/PoE+ HAT fan is firmware-controlled. Without the PoE overlay Linux exposes no fan sensor at all (`status-led diag` shows "weder hwmon-Tacho noch cooling_device"). Third-party PoE HATs (e.g. **Waveshare**) regulate the fan with their own onboard circuit and expose no tach/cooling device to the Pi, so the fan is not readable at all.
+- **Fix (official HAT only):** add `dtoverlay=rpi-poe` (PoE HAT) or `dtoverlay=rpi-poe-plus` (PoE+ HAT) to `/boot/firmware/config.txt`, reboot, then check `status-led diag` — a `cooling_device` of type `rpi-poe-fan` should appear and the OLED shows the fan stage (`St.x/y`). The `rpi-poe*` overlays are for the official HAT only; on a third-party HAT (Waveshare etc.) there is no readable value — leave `[fan]` disabled (the fan still runs, controlled by the HAT).
 
 ### ▶ SMART shows `n/a` / no device found
 - **Cause:** Booting from an SD card (SD cards have no SMART), or a USB SSD whose bridge isn't auto-detected by `smartctl --scan`.

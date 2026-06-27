@@ -528,8 +528,8 @@ Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart
 - **Lösung:** DejaVu-Fonts installieren: `sudo apt install -y fonts-dejavu-core`.
 
 ### ▶ Lüfter zeigt `n/a`, obwohl ein PoE-HAT verbaut ist
-- **Ursache:** Der PoE-/PoE+-HAT-Lüfter wird von der Firmware geregelt. Ohne PoE-Overlay stellt Linux gar keinen Lüftersensor bereit (`status-led diag` zeigt „weder hwmon-Tacho noch cooling_device"). Fremdhersteller-HATs mit eigener Lüfterregelung sind für Linux komplett unsichtbar.
-- **Lösung (offizieller HAT):** `dtoverlay=rpi-poe` (PoE-HAT) bzw. `dtoverlay=rpi-poe-plus` (PoE+-HAT) in `/boot/firmware/config.txt` eintragen, neu starten, dann `status-led diag` prüfen — ein `cooling_device` vom Typ `rpi-poe-fan` sollte erscheinen und das OLED zeigt die Lüfterstufe (`St.x/y`). Bei einem Fremd-HAT gibt es keinen auslesbaren Wert; dann `[fan]` deaktiviert lassen.
+- **Ursache:** Der PoE-/PoE+-HAT-Lüfter wird von der Firmware geregelt. Ohne PoE-Overlay stellt Linux gar keinen Lüftersensor bereit (`status-led diag` zeigt „weder hwmon-Tacho noch cooling_device"). Fremdhersteller-HATs (z. B. **Waveshare**) regeln den Lüfter mit einer eigenen Schaltung an Bord und stellen dem Pi weder Tacho noch cooling_device bereit — der Lüfter ist dann gar nicht auslesbar.
+- **Lösung (nur offizieller HAT):** `dtoverlay=rpi-poe` (PoE-HAT) bzw. `dtoverlay=rpi-poe-plus` (PoE+-HAT) in `/boot/firmware/config.txt` eintragen, neu starten, dann `status-led diag` prüfen — ein `cooling_device` vom Typ `rpi-poe-fan` sollte erscheinen und das OLED zeigt die Lüfterstufe (`St.x/y`). Die `rpi-poe*`-Overlays gelten nur für den offiziellen HAT; bei einem Fremd-HAT (Waveshare usw.) gibt es keinen auslesbaren Wert — `[fan]` deaktiviert lassen (der Lüfter läuft trotzdem, geregelt vom HAT).
 
 ### ▶ SMART zeigt `n/a` / kein Gerät gefunden
 - **Ursache:** Booten von SD-Karte (SD-Karten haben kein SMART) oder eine USB-SSD, deren Brücke von `smartctl --scan` nicht automatisch erkannt wird.
