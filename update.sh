@@ -35,7 +35,13 @@ NEW_VER="$(git -C "$INSTALL_DIR" describe --tags --always 2>/dev/null || echo un
 c_info "Aktualisiere Python-Bibliotheken..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade -r "$INSTALL_DIR/requirements.txt"
 
-# Service-Datei neu schreiben, falls sich der Inhalt geaendert hat (User bleibt erhalten)
+# CLI-Wrapper auf den aktuellen Stand bringen (neue Unterbefehle etc.)
+if [ -f "$INSTALL_DIR/status-led" ]; then
+    install -m 0755 "$INSTALL_DIR/status-led" /usr/local/bin/status-led 2>/dev/null || {
+        cp "$INSTALL_DIR/status-led" /usr/local/bin/status-led; chmod 0755 /usr/local/bin/status-led;
+    }
+fi
+
 if [ -f /etc/systemd/system/status-led.service ]; then
     systemctl daemon-reload
 fi

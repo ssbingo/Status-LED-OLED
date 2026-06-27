@@ -548,6 +548,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.2.2] — 2026-06-27
+
+**Behoben**
+- `update.sh` erneuert jetzt auch den Befehl `status-led` in `/usr/local/bin`, damit neue Unterbefehle (z. B. `diag`) per `status-led update` ankommen. Bestehende Installationen brauchen einmalig einen erneuten Lauf des Installers, um diesen Fix zu erhalten.
+
 ### [1.2.1] — 2026-06-27
 
 **Hinzugefügt**
