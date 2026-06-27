@@ -1,5 +1,13 @@
 # RGB Status LED (WS2812B) + OLED Display (SSD1306) for Raspberry Pi 4
 
+---
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+</p>
+
+---
+
 **English** · [Deutsch](doc/de/README.md)
 
 A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Raspberry Pi 4. The LED shows the system state by colour, the OLED shows the same state in plain text (IP, CPU, RAM, status). Both are driven by a single script (`status_led.py`) and one service. The last section is a hands-on **Troubleshooting** chapter with the pitfalls from a real-world setup.

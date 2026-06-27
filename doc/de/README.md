@@ -1,5 +1,13 @@
 # Installationsanleitung — RGB-Status-LED (WS2812B) + OLED-Display (SSD1306) für Raspberry Pi 4
 
+---
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/ssbingo"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=ssbingo&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
+</p>
+
+---
+
 [English](../../README.md) · **Deutsch**
 
 Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED (SSD1306 / Adafruit PiOLED) auf einem Raspberry Pi 4 ein. Die LED zeigt den Systemzustand per Farbe, das OLED parallel als Klartext (IP, CPU, RAM, Status). Beides steuert ein einziges Skript (`status_led.py`) und ein Dienst. Am Ende findest du eine Praxis-Rubrik **Troubleshooting** mit den Stolperfallen aus dem echten Aufbau.
