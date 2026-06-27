@@ -47,6 +47,7 @@ status-led logs        # Live-Log
 status-led setup       # Konfigurations-Assistent erneut starten
 status-led update      # auf die neueste Version aktualisieren (siehe unten)
 status-led restart     # Dienst neu starten
+status-led diag        # Hardware-Diagnose (OLED/SMART/Lüfter)
 ```
 
 ### Update
@@ -397,7 +398,7 @@ Ein Taster an **GPIO17 (Pin 11)** steuert das Display und kann den Pi neu starte
 
 - **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht; die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**: IP, CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
 - **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled.page_timeout_s`.
-- **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“, die LED wird rot, dann läuft `systemctl reboot`. Die Haltedauer legt `button.long_press_s` fest.
+- **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“ und die LED wird rot; diese Meldung bleibt `button.reboot_message_s` Sekunden stehen (Standard 3), bevor `systemctl reboot` läuft. Die Haltedauer legt `button.long_press_s` fest.
 
 Der Neustart braucht Root-Rechte — beim empfohlenen PWM-Setup läuft der Dienst ohnehin als `User=root`, das funktioniert also direkt. Bei der SPI-Variante unter einem normalen Benutzer wäre eine sudoers-/polkit-Regel nötig. Der Taster nutzt Blinkas `digitalio` und braucht kein zusätzliches Paket. Abschalten mit `--no-button` oder `button_enabled = False`.
 
@@ -439,7 +440,13 @@ fi
 
 Bei mehreren aktiven Zuständen gewinnt der mit der höchsten Priorität (für LED-Farbe und OLED-Text gleichermaßen). Das OLED zeigt zusätzlich dauerhaft IP, CPU-Temperatur + 1-Minuten-Last und RAM.
 
-Die SMART- und Lüfter-Zustände sind **standardmäßig aus**, weil sie Zusatzsoftware oder bestimmte Hardware brauchen: SMART benötigt `smartmontools` (`sudo apt install -y smartmontools`) und root, und der Lüfter-Tacho muss unter `/sys/class/hwmon` sichtbar sein (z. B. das offizielle Pi-Case-Fan oder ein PoE-HAT). In der Konfiguration aktivieren (`[smart] enabled = true`, `[fan] enabled = true`). Der Lüfter *warnt* nur, wenn `fan.warn_below_rpm` über 0 gesetzt ist; sonst zeigt er nur die Drehzahl auf dem OLED.
+Die SMART- und Lüfter-Zustände sind **standardmäßig aus**, weil sie Zusatzsoftware oder bestimmte Hardware brauchen: SMART benötigt `smartmontools` (`sudo apt install -y smartmontools`) und root. In der Konfiguration aktivieren (`[smart] enabled = true`, `[fan] enabled = true`).
+
+**Lüfter:** Eine echte Drehzahl (RPM) wird aus `/sys/class/hwmon` gelesen (z. B. manche Gehäuselüfter). Der Lüfter des offiziellen **PoE-/PoE+-HAT** ist firmwaregesteuert und hat *keinen* RPM-Tacho — stattdessen stellt er ein thermal `cooling_device` mit einer Stufe (0…max) bereit, die als `St.x/y` auf dem OLED erscheint. Mit Tacho löst `fan.warn_below_rpm` eine Warnung unterhalb dieser Drehzahl aus; bei einem Stufen-Lüfter warnt `fan.warn_at_max = true`, wenn er dauerhaft auf der Maximalstufe sitzt. Sonst ist der Lüfterwert reine Anzeige.
+
+**SMART:** Beim Booten von SD-Karte gibt es kein SMART-Gerät (SD-Karten unterstützen es nicht). Bei einer USB-SSD/HDD braucht die USB-Brücke oft `-d sat` — das probiert die Abfrage automatisch.
+
+> **Tipp:** `status-led diag` (oder `python3 status_led.py --diag`) ausführen, um genau zu sehen, was für OLED, SMART und Lüfter erkannt wird — der schnellste Weg herauszufinden, warum ein Wert fehlt.
 
 ---
 
@@ -540,6 +547,16 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.1] — 2026-06-27
+
+**Hinzugefügt**
+- `status_led.py --diag` / `status-led diag`: Hardware-Diagnose für OLED, SMART und Lüfter — zeigt, was erkannt wird, wenn Werte fehlen.
+- Lüfter-Unterstützung für das offizielle PoE-/PoE+-HAT (und andere firmwaregesteuerte Lüfter) über das thermal `cooling_device`: zeigt die Lüfterstufe (`St.x/y`), wenn kein RPM-Tacho vorhanden ist; `fan.warn_at_max` warnt bei Dauer-Maximalstufe.
+
+**Geändert**
+- Der Taster-Neustart hält die „Neustart"-Meldung jetzt `button.reboot_message_s` Sekunden (Standard 3) auf dem OLED, bevor neu gestartet wird.
+- SMART-Abfrage robuster: probiert zusätzlich `-d sat` (USB‑SATA‑Brücken) und fällt auf Block‑Device‑Knoten zurück.
 
 ### [1.2.0] — 2026-06-27
 

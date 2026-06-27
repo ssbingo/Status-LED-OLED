@@ -27,9 +27,10 @@ poll_s         = 1.0
 page_timeout_s = 30.0        # Auto-Ruecksprung auf Seite 0
 
 [button]
-enabled       = true
-pin           = 17           # BCM, Taster gegen GND (interner Pull-up)
-long_press_s  = 5.0          # >= so lange halten -> Neustart
+enabled          = true
+pin              = 17        # BCM, Taster gegen GND (interner Pull-up)
+long_press_s     = 5.0       # >= so lange halten -> Neustart
+reboot_message_s = 3.0       # "Neustart" so lange anzeigen, bevor der Reboot ausgeloest wird
 
 [temp]
 threshold_c  = 70.0          # ab hier Uebertemperatur
@@ -62,8 +63,9 @@ poll_s   = 300.0
 # devices = ["/dev/sda"]     # leer = automatisch (smartctl --scan)
 
 [fan]
-enabled        = false       # nur sinnvoll mit hwmon-Tacho
-warn_below_rpm = 0           # 0 = nur Drehzahl anzeigen, nie warnen
+enabled        = false       # hwmon-Tacho ODER thermal cooling_device (z. B. PoE-HAT)
+warn_below_rpm = 0           # 0 = nur Drehzahl anzeigen, nie warnen (nur bei RPM-Tacho)
+warn_at_max    = false       # bei Stufen-Luefter (PoE-HAT): warnen bei Dauer-Maximalstufe
 # hwmon = "/sys/class/hwmon/hwmon0/fan1_input"   # leer = automatisch suchen
 
 [brightness]

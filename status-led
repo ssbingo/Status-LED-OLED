@@ -20,6 +20,7 @@ Verwendung: status-led <befehl>
   status     Dienststatus anzeigen
   logs       Live-Log anzeigen (Strg+C beendet)
   restart    Dienst neu starten
+  diag       Hardware-Diagnose (OLED/SMART/Luefter)
   version    installierte Version anzeigen
 EOF
 }
@@ -30,6 +31,7 @@ case "${1:-}" in
     status)  exec systemctl status status-led.service ;;
     logs)    exec journalctl -u status-led -f ;;
     restart) exec sudo systemctl restart status-led.service ;;
+    diag)    exec sudo "$VENV_PY" "$INSTALL_DIR/status_led.py" --diag --config "$CONFIG_FILE" ;;
     version) exec "$VENV_PY" "$INSTALL_DIR/status_led.py" --version ;;
     ""|-h|--help|help) usage ;;
     *) echo "Unbekannter Befehl: $1"; echo; usage; exit 1 ;;

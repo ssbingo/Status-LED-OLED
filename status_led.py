@@ -49,7 +49,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -87,6 +87,7 @@ class Config:
     button_pin: int = 17              # BCM; Taster gegen GND, interner Pull-up (gedrueckt = LOW)
     button_long_press_s: float = 5.0  # ab dieser Haltedauer -> Reboot
     button_debounce_s: float = 0.05   # Mindest-Druckdauer fuer "kurz"
+    button_reboot_message_s: float = 3.0  # so lange "Neustart" anzeigen, bevor der Reboot ausgeloest wird
 
     # --- Temperatur ---
     temp_threshold_c: float = 70.0    # ab hier "Uebertemperatur"
@@ -128,9 +129,10 @@ class Config:
     smart_devices: tuple[str, ...] = ()  # leer = automatisch (smartctl --scan)
     smart_poll_s: float = 300.0
 
-    # --- Luefter (Tacho ueber hwmon, sofern vorhanden) ---
+    # --- Luefter (hwmon-Tacho ODER thermal cooling_device, z. B. PoE-HAT) ---
     fan_enabled: bool = False
     fan_warn_below_rpm: int = 0       # 0 = nie warnen (nur Drehzahl anzeigen); sonst Warnung unter dieser Drehzahl
+    fan_warn_at_max: bool = False     # bei stufengesteuerten Lueftern (PoE-HAT): warnen, wenn Dauer-Maximalstufe
     fan_poll_s: float = 5.0
     fan_hwmon_glob: str = ""          # optionaler fester Pfad zu fanX_input; leer = automatisch suchen
 
@@ -179,6 +181,7 @@ CONFIG_MAP: dict[str, str] = {
     "button.pin": "button_pin",
     "button.long_press_s": "button_long_press_s",
     "button.debounce_s": "button_debounce_s",
+    "button.reboot_message_s": "button_reboot_message_s",
     "temp.threshold_c": "temp_threshold_c",
     "temp.hysteresis_c": "temp_hysteresis_c",
     "temp.path": "temp_path",
@@ -207,6 +210,7 @@ CONFIG_MAP: dict[str, str] = {
     "smart.poll_s": "smart_poll_s",
     "fan.enabled": "fan_enabled",
     "fan.warn_below_rpm": "fan_warn_below_rpm",
+    "fan.warn_at_max": "fan_warn_at_max",
     "fan.poll_s": "fan_poll_s",
     "fan.hwmon": "fan_hwmon_glob",
     "brightness.green_idle": "green_idle",
@@ -562,48 +566,95 @@ class DiskSpaceSensor:
         return self._value
 
 
-class FanSensor:
-    """Luefterdrehzahl (RPM) ueber einen hwmon-Tacho, sofern vorhanden."""
-
-    _CANDIDATES = (
+def find_fan_rpm_path(override: str = "") -> str | None:
+    """hwmon-Tacho mit RPM (fanX_input), sofern vorhanden."""
+    candidates = (
         "/sys/class/hwmon/hwmon*/fan*_input",
         "/sys/devices/platform/cooling_fan/hwmon/hwmon*/fan*_input",
     )
+    patterns = (override,) if override else candidates
+    for pat in patterns:
+        matches = sorted(glob.glob(pat))
+        if matches:
+            return matches[0]
+    return None
+
+
+def find_fan_cooling_dev() -> str | None:
+    """thermal cooling_device eines Luefters (z. B. PoE-HAT: 'rpi-poe-fan').
+    Diese liefern keine RPM, sondern eine Stufe (cur_state/max_state)."""
+    for dev in sorted(glob.glob("/sys/class/thermal/cooling_device*")):
+        try:
+            t = Path(dev + "/type").read_text().strip().lower()
+        except OSError:
+            continue
+        if "fan" in t or "poe" in t:
+            return dev
+    return None
+
+
+class FanSensor:
+    """Luefterinfo: bevorzugt hwmon-Tacho (RPM); sonst thermal cooling_device
+    (Stufe, z. B. offizielles PoE-/PoE+-HAT, dessen Luefter firmwaregesteuert ist)."""
 
     def __init__(self, cfg: Config):
         self._poll = cfg.fan_poll_s
         self._last = 0.0
-        self._rpm: int | None = None
-        self._path = self._find(cfg.fan_hwmon_glob)
+        self.rpm: int | None = None
+        self.level: int | None = None
+        self.max_level: int | None = None
+        self._rpm_path = find_fan_rpm_path(cfg.fan_hwmon_glob)
+        self._cool_path = None if self._rpm_path else find_fan_cooling_dev()
 
-    @classmethod
-    def _find(cls, override: str) -> str | None:
-        patterns = (override,) if override else cls._CANDIDATES
-        for pat in patterns:
-            matches = sorted(glob.glob(pat))
-            if matches:
-                return matches[0]
-        return None
-
-    def read(self, now: float) -> int | None:
-        if self._path and now - self._last >= self._poll:
-            self._last = now
+    def read(self, now: float) -> None:
+        if now - self._last < self._poll:
+            return
+        self._last = now
+        if self._rpm_path:
             try:
-                self._rpm = int(Path(self._path).read_text().strip())
+                self.rpm = int(Path(self._rpm_path).read_text().strip())
             except (OSError, ValueError):
-                self._rpm = None
-        return self._rpm
+                self.rpm = None
+        elif self._cool_path:
+            try:
+                self.level = int(Path(self._cool_path + "/cur_state").read_text().strip())
+                self.max_level = int(Path(self._cool_path + "/max_state").read_text().strip())
+            except (OSError, ValueError):
+                self.level = self.max_level = None
+
+
+def _smartctl_json(dev: str) -> dict:
+    """smartctl-JSON fuer ein Geraet; probiert auch '-d sat' (USB-SATA-Bruecken)."""
+    for extra in ([], ["-d", "sat"]):
+        try:
+            out = subprocess.run(["smartctl", "-H", "-A", "-j", *extra, dev],
+                                 capture_output=True, text=True, timeout=20)
+            data = json.loads(out.stdout or "{}")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            continue
+        if data.get("smart_status") is not None or data.get("temperature") is not None:
+            return data
+    return {}
 
 
 def smart_scan() -> list[str]:
-    """Geraete via 'smartctl --scan' ermitteln."""
-    try:
-        out = subprocess.run(["smartctl", "--scan", "-j"],
-                             capture_output=True, text=True, timeout=10)
-        data = json.loads(out.stdout or "{}")
-        return [d["name"] for d in data.get("devices", []) if "name" in d]
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return []
+    """Geraete via 'smartctl --scan' ermitteln (inkl. '-d sat'-Variante fuer USB).
+    Faellt auf vorhandene Block-Devices zurueck, falls der Scan leer bleibt."""
+    devices: list[str] = []
+    for args in (["smartctl", "--scan", "-j"], ["smartctl", "--scan", "-d", "sat", "-j"]):
+        try:
+            out = subprocess.run(args, capture_output=True, text=True, timeout=10)
+            data = json.loads(out.stdout or "{}")
+        except (OSError, subprocess.SubprocessError, ValueError):
+            continue
+        for d in data.get("devices", []):
+            name = d.get("name")
+            if name and name not in devices:
+                devices.append(name)
+    if not devices:
+        for pat in ("/dev/sd[a-z]", "/dev/nvme[0-9]n[0-9]"):
+            devices.extend(sorted(glob.glob(pat)))
+    return devices
 
 
 def smart_probe(cfg: Config) -> dict:
@@ -613,12 +664,7 @@ def smart_probe(cfg: Config) -> dict:
     failed = False
     temp: float | None = None
     for dev in devices:
-        try:
-            out = subprocess.run(["smartctl", "-H", "-A", "-j", dev],
-                                 capture_output=True, text=True, timeout=20)
-            data = json.loads(out.stdout or "{}")
-        except (OSError, subprocess.SubprocessError, ValueError):
-            continue
+        data = _smartctl_json(dev)
         if data.get("smart_status", {}).get("passed") is False:
             failed = True
         t = data.get("temperature", {}).get("current")
@@ -732,12 +778,16 @@ class SimDiskSpace:
 class SimFan:
     def __init__(self, cfg: Config):
         self._start = time.monotonic()
+        self.rpm: int | None = None
+        self.level: int | None = None
+        self.max_level: int | None = None
 
-    def read(self, now: float) -> int | None:
+    def read(self, now: float) -> None:
         t = (now - self._start) % 20.0
         if t < 3.0:
-            return 0                       # Luefter steht (loest Warnung aus, wenn Schwelle gesetzt)
-        return int(1500 + 400 * math.sin(now))
+            self.rpm = 0                   # Luefter steht (loest Warnung aus, wenn Schwelle gesetzt)
+        else:
+            self.rpm = int(1500 + 400 * math.sin(now))
 
 
 class SimSmart:
@@ -783,6 +833,8 @@ class Context:
     smart_failed: bool = False
     disk_temp_c: float | None = None
     fan_rpm: int | None = None
+    fan_level: int | None = None
+    fan_max_level: int | None = None
     fan_failed: bool = False
     net_rx_rate: float = 0.0
     net_tx_rate: float = 0.0
@@ -1003,7 +1055,13 @@ def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
     if cfg.smart_enabled:
         fields.append(("Disk", f"{ctx.disk_temp_c:.0f}C" if ctx.disk_temp_c is not None else "n/a"))
     if cfg.fan_enabled:
-        fields.append(("Fan", f"{ctx.fan_rpm}rpm" if ctx.fan_rpm is not None else "n/a"))
+        if ctx.fan_rpm is not None:
+            fan_val = f"{ctx.fan_rpm}rpm"
+        elif ctx.fan_level is not None:
+            fan_val = f"St.{ctx.fan_level}/{ctx.fan_max_level}"   # Stufe (z. B. PoE-HAT)
+        else:
+            fan_val = "n/a"
+        fields.append(("Fan", fan_val))
     return fields
 
 
@@ -1321,9 +1379,15 @@ def run(cfg: Config, simulate: bool = False) -> None:
             if diskspace is not None:
                 ctx.disk_free_pct = diskspace.read(ctx.now)
             if fan is not None:
-                ctx.fan_rpm = fan.read(ctx.now)
-                ctx.fan_failed = (cfg.fan_warn_below_rpm > 0 and ctx.fan_rpm is not None
-                                  and ctx.fan_rpm < cfg.fan_warn_below_rpm)
+                fan.read(ctx.now)
+                ctx.fan_rpm = fan.rpm
+                ctx.fan_level = fan.level
+                ctx.fan_max_level = fan.max_level
+                rpm_warn = (cfg.fan_warn_below_rpm > 0 and ctx.fan_rpm is not None
+                            and ctx.fan_rpm < cfg.fan_warn_below_rpm)
+                level_warn = (cfg.fan_warn_at_max and ctx.fan_level is not None
+                              and ctx.fan_max_level is not None and ctx.fan_level >= ctx.fan_max_level)
+                ctx.fan_failed = rpm_warn or level_warn
             if smart is not None:
                 s = smart.value
                 ctx.smart_failed = s["failed"]
@@ -1349,6 +1413,9 @@ def run(cfg: Config, simulate: bool = False) -> None:
                             oled.message("Neustart...")
                         except Exception:
                             pass
+                    # Meldung erst sichtbar stehen lassen, dann neu starten
+                    if cfg.button_reboot_message_s > 0:
+                        time.sleep(cfg.button_reboot_message_s)
                     do_reboot(simulate)
                     if simulate:
                         break
@@ -1571,9 +1638,66 @@ def run_setup(config_path: str) -> int:
     return 0
 
 
+def run_diag(config_path: str) -> int:
+    """Hardware-Diagnose: zeigt, was fuer OLED, SMART und Luefter erkannt wird.
+    Hilfreich, wenn Werte fehlen (z. B. SMART/Luefter)."""
+    print(f"status-led {__version__}  --  Diagnose")
+    try:
+        model = Path("/proc/device-tree/model").read_text().strip("\x00").strip()
+    except OSError:
+        model = "unbekannt"
+    print(f"Modell: {model}")
+    print(f"Konfig: {config_path} ({'vorhanden' if Path(config_path).exists() else 'fehlt -> Defaults'})")
+
+    print("\n[I2C]")
+    if shutil.which("i2cdetect") is None:
+        print("  i2cdetect nicht installiert (apt install i2c-tools)")
+    else:
+        addrs = detect_i2c_addresses()
+        print(f"  gefundene Adressen: {', '.join(addrs) if addrs else 'keine'}")
+
+    print("\n[SMART]")
+    if shutil.which("smartctl") is None:
+        print("  smartctl nicht installiert (apt install smartmontools)")
+    else:
+        devices = smart_scan()
+        if not devices:
+            print("  keine Geraete gefunden (SD-Karten haben kein SMART; USB-SSD ggf. '-d sat')")
+        for dev in devices:
+            data = _smartctl_json(dev)
+            passed = data.get("smart_status", {}).get("passed")
+            temp = data.get("temperature", {}).get("current")
+            status = "ok" if passed else ("FEHLER" if passed is False else "n/a")
+            print(f"  {dev}: Status={status}, Temp={temp if temp is not None else 'n/a'}")
+
+    print("\n[Luefter]")
+    rpm_path = find_fan_rpm_path()
+    cool = find_fan_cooling_dev()
+    if rpm_path:
+        try:
+            rpm = Path(rpm_path).read_text().strip()
+        except OSError:
+            rpm = "?"
+        print(f"  hwmon-Tacho: {rpm_path} = {rpm} rpm")
+    elif cool:
+        try:
+            ctype = Path(cool + "/type").read_text().strip()
+            cur = Path(cool + "/cur_state").read_text().strip()
+            mx = Path(cool + "/max_state").read_text().strip()
+            print(f"  cooling_device: {cool} (type={ctype}) Stufe {cur}/{mx}")
+            print("  -> kein RPM-Tacho; in der Config 'fan.warn_at_max = true' fuer Warnung bei Dauer-Maximalstufe")
+        except OSError:
+            print(f"  cooling_device: {cool} (nicht lesbar)")
+    else:
+        print("  weder hwmon-Tacho noch cooling_device gefunden")
+    return 0
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="RGB-Status-LED + OLED fuer Raspberry Pi 4")
     p.add_argument("--version", action="version", version=f"status-led {__version__}")
+    p.add_argument("--diag", action="store_true",
+                   help="Hardware-Diagnose (OLED/SMART/Luefter) ausgeben und beenden")
     p.add_argument("--setup", action="store_true",
                    help="interaktiver Konfigurations-Assistent (schreibt config.toml)")
     p.add_argument("--simulate", action="store_true", help="ohne Hardware im Terminal testen")
@@ -1592,6 +1716,8 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv if argv is not None else sys.argv[1:])
     if args.setup:
         sys.exit(run_setup(args.config))
+    if args.diag:
+        sys.exit(run_diag(args.config))
     # Reihenfolge: Defaults < Konfigurationsdatei < CLI-Argumente
     cfg = load_config(args.config, required=(args.config != DEFAULT_CONFIG_PATH))
     if args.led_type:

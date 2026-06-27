@@ -47,6 +47,7 @@ status-led logs        # live log
 status-led setup       # re-run the configuration wizard
 status-led update      # update to the latest version (see below)
 status-led restart     # restart the service
+status-led diag        # hardware diagnostics (OLED/SMART/fan)
 ```
 
 ### Update
@@ -397,7 +398,7 @@ A push button on **GPIO17 (pin 11)** controls the display and can reboot the Pi:
 
 - **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview; the following pages each show one value on its own in a **large, auto-fitted font**: IP, CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
 - **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled.page_timeout_s`.
-- **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…”, the LED turns red, then `systemctl reboot` runs. The hold time is set by `button.long_press_s`.
+- **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…” and the LED turns red; this message stays for `button.reboot_message_s` seconds (default 3) before `systemctl reboot` runs. The hold time is set by `button.long_press_s`.
 
 The reboot needs root privileges — with the recommended PWM setup the service already runs as `User=root`, so it works out of the box. For the SPI variant under a normal user you would need a sudoers/polkit rule. The button uses Blinka’s `digitalio` and needs no extra package. Disable it with `--no-button` or `button_enabled = False`.
 
@@ -437,7 +438,13 @@ fi
 | High CPU load         | Amber, pulsing        | CPU-Last hoch     | 30   | yes (`cpuload`)    |
 | Normal operation      | Green (bright on I/O) | Normalbetrieb     | 0    | yes                |
 
-The SMART and fan states are **off by default** because they need extra software or specific hardware: SMART needs `smartmontools` (`sudo apt install -y smartmontools`) and root, and the fan tach must be exposed under `/sys/class/hwmon` (e.g. the official Pi case fan or a PoE HAT). Enable them in the config (`[smart] enabled = true`, `[fan] enabled = true`). The fan only *warns* when `fan.warn_below_rpm` is set above 0; otherwise it just shows the RPM on the OLED.
+The SMART and fan states are **off by default** because they need extra software or specific hardware: SMART needs `smartmontools` (`sudo apt install -y smartmontools`) and root. Enable them in the config (`[smart] enabled = true`, `[fan] enabled = true`).
+
+**Fan:** a real RPM tach is read from `/sys/class/hwmon` (e.g. some case fans). The official **PoE/PoE+ HAT** fan is firmware-controlled and has *no* RPM tach — instead it exposes a thermal `cooling_device` with a stage (0…max), which is shown as `St.x/y` on the OLED. With a tach, `fan.warn_below_rpm` triggers a warning below that RPM; with a stage fan, `fan.warn_at_max = true` warns when it sits at the top stage. Otherwise the fan value is display-only.
+
+**SMART:** an SD-card boot has no SMART device (SD cards don't support it). For a USB SSD/HDD the USB bridge often needs `-d sat`, which the probe tries automatically.
+
+> **Tip:** Run `status-led diag` (or `python3 status_led.py --diag`) to see exactly what is detected for OLED, SMART and the fan — the quickest way to find out why a value is missing.
 
 When several states are active, the one with the highest priority wins (for both LED colour and OLED text). The OLED also permanently shows IP, CPU temperature + 1-minute load and RAM.
 
@@ -542,6 +549,16 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.1] — 2026-06-27
+
+**Added**
+- `status_led.py --diag` / `status-led diag`: hardware diagnostics for OLED, SMART and fan — shows what is detected when values are missing.
+- Fan support for the official PoE/PoE+ HAT (and other firmware-controlled fans) via the thermal `cooling_device`: shows the fan stage (`St.x/y`) when there is no RPM tach; `fan.warn_at_max` warns at the top stage.
+
+**Changed**
+- Button reboot now keeps the "Neustart" message on the OLED for `button.reboot_message_s` seconds (default 3) before rebooting.
+- SMART probe is more robust: also tries `-d sat` (USB‑SATA bridges) and falls back to block‑device nodes.
 
 ### [1.2.0] — 2026-06-27
 

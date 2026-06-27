@@ -110,6 +110,18 @@ class TestEnableFlags(unittest.TestCase):
         self.assertTrue(sl.is_fan_warn(ctx(cfg=cfg, fan_failed=True)))
 
 
+class TestConfigKeys(unittest.TestCase):
+    def test_new_keys_map(self):
+        cfg = sl.Config()
+        unknown = sl.apply_config_dict(cfg, {
+            "button": {"reboot_message_s": 1.5},
+            "fan": {"warn_at_max": True},
+        })
+        self.assertEqual(unknown, [])
+        self.assertEqual(cfg.button_reboot_message_s, 1.5)
+        self.assertTrue(cfg.fan_warn_at_max)
+
+
 class TestStatusText(unittest.TestCase):
     def test_every_status_has_text(self):
         for s in sl.STATUSES:
