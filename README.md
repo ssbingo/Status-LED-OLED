@@ -529,6 +529,14 @@ The following cases come from a real setup — from the service start to the fli
 - **Cause:** No scalable TrueType font was found, so the small bitmap font is used.
 - **Fix:** Install the DejaVu fonts: `sudo apt install -y fonts-dejavu-core`.
 
+### ▶ Fan shows `n/a` even though a PoE HAT is installed
+- **Cause:** The PoE/PoE+ HAT fan is firmware-controlled. Without the PoE overlay Linux exposes no fan sensor at all (`status-led diag` shows "weder hwmon-Tacho noch cooling_device"). Third-party PoE HATs with their own fan controller are invisible to Linux entirely.
+- **Fix (official HAT):** add `dtoverlay=rpi-poe` (PoE HAT) or `dtoverlay=rpi-poe-plus` (PoE+ HAT) to `/boot/firmware/config.txt`, reboot, then check `status-led diag` — a `cooling_device` of type `rpi-poe-fan` should appear and the OLED shows the fan stage (`St.x/y`). For a third-party HAT there is no readable value; leave `[fan]` disabled.
+
+### ▶ SMART shows `n/a` / no device found
+- **Cause:** Booting from an SD card (SD cards have no SMART), or a USB SSD whose bridge isn't auto-detected by `smartctl --scan`.
+- **Fix:** Check with `status-led diag`. For a USB SSD the probe automatically retries with `-d sat`; verify manually with `sudo smartctl -d sat -i /dev/sda`. If even that fails, your USB bridge needs a specific driver (`-d sntjmicron`, `-d sntasmedia`, …).
+
 ### Useful diagnostic commands
 
 ```bash
@@ -549,6 +557,12 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.3] — 2026-06-27
+
+**Changed**
+- `--diag` now explains how to make a PoE/PoE+ HAT fan visible to Linux (load the `rpi-poe`/`rpi-poe-plus` overlay) when no fan sensor is found.
+- Troubleshooting: added entries for the PoE-HAT fan showing `n/a` and for SMART on SD-card/USB-SSD setups.
 
 ### [1.2.2] — 2026-06-27
 

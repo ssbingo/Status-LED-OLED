@@ -49,7 +49,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -1690,6 +1690,11 @@ def run_diag(config_path: str) -> int:
             print(f"  cooling_device: {cool} (nicht lesbar)")
     else:
         print("  weder hwmon-Tacho noch cooling_device gefunden")
+        print("  -> PoE-/PoE+-HAT-Luefter werden von der Firmware geregelt und sind fuer")
+        print("     Linux nur sichtbar, wenn das Overlay geladen ist. Beim offiziellen HAT:")
+        print("     'dtoverlay=rpi-poe' (PoE) bzw. 'dtoverlay=rpi-poe-plus' (PoE+) in")
+        print("     /boot/firmware/config.txt eintragen, neu starten, dann erneut --diag.")
+        print("     Fremd-HATs mit eigener Luefterregelung bleiben fuer Linux unsichtbar.")
     return 0
 
 

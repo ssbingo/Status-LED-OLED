@@ -527,6 +527,14 @@ Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart
 - **Ursache:** Kein skalierbarer TrueType-Font gefunden, daher wird der kleine Bitmap-Font verwendet.
 - **Lösung:** DejaVu-Fonts installieren: `sudo apt install -y fonts-dejavu-core`.
 
+### ▶ Lüfter zeigt `n/a`, obwohl ein PoE-HAT verbaut ist
+- **Ursache:** Der PoE-/PoE+-HAT-Lüfter wird von der Firmware geregelt. Ohne PoE-Overlay stellt Linux gar keinen Lüftersensor bereit (`status-led diag` zeigt „weder hwmon-Tacho noch cooling_device"). Fremdhersteller-HATs mit eigener Lüfterregelung sind für Linux komplett unsichtbar.
+- **Lösung (offizieller HAT):** `dtoverlay=rpi-poe` (PoE-HAT) bzw. `dtoverlay=rpi-poe-plus` (PoE+-HAT) in `/boot/firmware/config.txt` eintragen, neu starten, dann `status-led diag` prüfen — ein `cooling_device` vom Typ `rpi-poe-fan` sollte erscheinen und das OLED zeigt die Lüfterstufe (`St.x/y`). Bei einem Fremd-HAT gibt es keinen auslesbaren Wert; dann `[fan]` deaktiviert lassen.
+
+### ▶ SMART zeigt `n/a` / kein Gerät gefunden
+- **Ursache:** Booten von SD-Karte (SD-Karten haben kein SMART) oder eine USB-SSD, deren Brücke von `smartctl --scan` nicht automatisch erkannt wird.
+- **Lösung:** Mit `status-led diag` prüfen. Bei einer USB-SSD probiert die Abfrage automatisch `-d sat`; manuell testen mit `sudo smartctl -d sat -i /dev/sda`. Klappt auch das nicht, braucht deine USB-Brücke einen speziellen Treiber (`-d sntjmicron`, `-d sntasmedia`, …).
+
 ### Nützliche Diagnose-Befehle
 
 ```bash
@@ -547,6 +555,12 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.2.3] — 2026-06-27
+
+**Geändert**
+- `--diag` erklärt jetzt, wie man den Lüfter eines PoE-/PoE+-HAT für Linux sichtbar macht (Overlay `rpi-poe`/`rpi-poe-plus` laden), wenn kein Lüftersensor gefunden wird.
+- Troubleshooting: Einträge für „Lüfter zeigt `n/a`" (PoE-HAT) und für SMART bei SD-Karten-/USB-SSD-Setups ergänzt.
 
 ### [1.2.2] — 2026-06-27
 
