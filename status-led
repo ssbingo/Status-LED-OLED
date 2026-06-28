@@ -24,6 +24,7 @@ Verwendung: status-led <befehl>
   backup        jetzt ein Backup ausfuehren
   backup-setup  Backup einrichten/aendern (restic)
   backup-status Backup-Zeitplan und letztes Log anzeigen
+  restore       Daten aus dem Backup wiederherstellen (Assistent)
   version       installierte Version anzeigen
 EOF
 }
@@ -46,6 +47,7 @@ case "${1:-}" in
         fi
         ;;
     backup-setup)  exec sudo "$INSTALL_DIR/setup-backup.sh" ;;
+    restore)       exec sudo "$INSTALL_DIR/restore.sh" ;;
     backup-status)
         if backup_ready; then
             systemctl list-timers status-led-backup.timer --no-pager || true

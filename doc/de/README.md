@@ -424,6 +424,7 @@ Der Assistent fragt: **Häufigkeit** (täglich / wöchentlich / monatlich) und *
 sudo status-led backup         # jetzt ein Backup ausfuehren
 sudo status-led backup-setup   # Zeitplan / Ziel / Pfade aendern
 status-led backup-status       # Timer und letztes Log anzeigen
+sudo status-led restore        # Daten wiederherstellen (Assistent)
 ```
 
 ### Angelegte Dateien
@@ -438,6 +439,59 @@ status-led backup-status       # Timer und letztes Log anzeigen
 **Funktionsweise:** Der Runner (`backup-run.sh`) mountet die SMB-Freigabe bei Bedarf, führt `restic backup` aus (initialisiert das Repo beim ersten Lauf), dann `restic forget --prune` für die Aufbewahrung, und schreibt `running`/`ok`/`failed` nach `/run/status-led/backup`. Anschließend wird die Freigabe wieder ausgehängt.
 
 > **Sicherheit:** restic-Passwort und SMB-Zugangsdaten liegen in nur für root lesbaren Dateien (0600), damit unbeaufsichtigte Backups laufen können. Der Backup-Dienst läuft als root (nötig zum Mounten der Freigabe und Lesen aller Quellpfade).
+
+### Daten wiederherstellen (Restore)
+
+> ⚠️ **restic-Passwort sicher aufbewahren!** Das Repository ist **verschlüsselt**. Das Passwort liegt in `/etc/status-led/restic-password` *auf dem Pi*. Geht der Pi oder seine Platte kaputt, ist diese Datei mit weg — **schreib das restic-Passwort auf und bewahre es getrennt vom Pi auf** (und notiere den Freigabe-Pfad). Ohne das Passwort lässt sich das Backup nie wieder öffnen.
+
+#### Der einfache Weg (Pi funktioniert noch)
+
+```bash
+sudo status-led restore
+```
+
+Das bindet die Backup-Freigabe **nur lesend** ein, listet deine Sicherungen (Snapshots) und bietet ein einfaches Menü:
+
+1. **Dateien durchsuchen und einzeln herauskopieren** (empfohlen) — das Backup erscheint als Ordner; du kopierst gezielt heraus, was du brauchst.
+2. **Alles in einen Ordner wiederherstellen** (Standard `/tmp/status-led-restore`) — danach kopierst du zurück, was du möchtest.
+3. **Einen bestimmten Pfad wiederherstellen** (z. B. `/etc` oder eine einzelne Datei).
+
+Es wird nichts automatisch überschrieben: Die wiederhergestellten Dateien landen in einem Ordner *deiner* Wahl — du entscheidest, was zurück soll.
+
+#### Das Backup wie normale Dateien durchsuchen
+
+Wähle Option 1. Das Backup wird unter `/mnt/status-led-restore` eingebunden. Öffne ein **zweites Terminal** (oder einen Dateimanager) und kopiere heraus:
+
+```bash
+ls /mnt/status-led-restore/snapshots/latest/
+cp -a /mnt/status-led-restore/snapshots/latest/home/BENUTZER/Dokumente/datei.txt ~/
+```
+
+Zum Beenden im ersten Terminal **Strg+C** drücken.
+
+#### Notfall-Wiederherstellung — auf einem neuen / leeren Raspberry Pi
+
+Wenn der Pi ersetzt wurde und die Konfiguration weg ist, geht es von Hand. Du brauchst drei Dinge: den **Freigabe-Pfad**, einen **SMB-Benutzer + Passwort** mit Zugriff und das **restic-Passwort** (das du dir notiert hast!).
+
+```bash
+# 1) Werkzeuge installieren
+sudo apt update && sudo apt install -y restic cifs-utils
+
+# 2) Backup-Freigabe nur lesend mounten
+sudo mkdir -p /mnt/restore
+sudo mount -t cifs //10.10.9.220/HausBackup /mnt/restore -o ro,username=DEINUSER
+#    (SMB-Passwort eingeben, wenn gefragt)
+
+# 3) restic auf das Repository zeigen lassen (der bei der Einrichtung gewaehlte Unterordner)
+export RESTIC_REPOSITORY=/mnt/restore/status-led-restic
+restic snapshots          # fragt nach dem restic-Passwort und listet die Sicherungen
+
+# 4) alles in einen Ordner wiederherstellen
+restic restore latest --target /tmp/restore
+#    deine Daten liegen jetzt unter /tmp/restore (Originalpfade als Unterordner)
+```
+
+> **Tipp:** Für eine einzelne Sache `--include` anhängen, z. B. `restic restore latest --target /tmp/restore --include /etc/fstab`. Zum Durchsuchen stattdessen: `sudo apt install -y fuse3`, dann `mkdir /mnt/r && restic mount /mnt/r` und unter `/mnt/r/snapshots/latest/` schauen.
 
 ### Stattdessen ein eigener Backup-Job
 
@@ -595,6 +649,12 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.4.0] — 2026-06-28
+
+**Hinzugefügt**
+- Geführter **Restore-Assistent** (`status-led restore` / `restore.sh`): bindet die Backup-Freigabe nur lesend ein, listet die Snapshots und bietet ein laientaugliches Menü (Dateien durchsuchen & einzeln kopieren, alles in einen Ordner wiederherstellen, einen Pfad wiederherstellen). Es wird nichts automatisch überschrieben.
+- README-Anleitung zum Restore für Laien, inklusive **Notfall-Wiederherstellung auf einem neuen/leeren Pi** und deutlichem Hinweis, das restic-Passwort getrennt vom Pi aufzubewahren.
 
 ### [1.3.2] — 2026-06-28
 

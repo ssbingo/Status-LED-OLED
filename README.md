@@ -424,6 +424,7 @@ The wizard asks for: **frequency** (daily / weekly / monthly) and **time** (hh:m
 sudo status-led backup         # run a backup now
 sudo status-led backup-setup   # change schedule / target / paths
 status-led backup-status       # show the timer and the last run's log
+sudo status-led restore        # restore data (guided wizard)
 ```
 
 ### Files it creates
@@ -438,6 +439,59 @@ status-led backup-status       # show the timer and the last run's log
 **How it works:** the runner (`backup-run.sh`) mounts the SMB share on demand, runs `restic backup` (initialising the repo on first run), then `restic forget --prune` for retention, and writes `running`/`ok`/`failed` to `/run/status-led/backup`. The share is unmounted again afterwards.
 
 > **Security:** the restic password and SMB credentials are stored in root-only (0600) files so unattended backups can run. The backup service runs as root (needed to mount the share and read all source paths).
+
+### Restoring your data
+
+> ⚠️ **Keep your restic password safe!** The repository is **encrypted**. The password sits in `/etc/status-led/restic-password` *on the Pi*. If the Pi or its disk dies, that file is gone with it — **write the restic password down and keep it somewhere off the Pi** (and note the share path). Without the password the backup can never be opened.
+
+#### The easy way (Pi still works)
+
+```bash
+sudo status-led restore
+```
+
+This mounts the backup share **read-only**, lists your snapshots (backup points) and offers a simple menu:
+
+1. **Browse and copy single files** (recommended) — the backup shows up as a folder; you copy out just what you need.
+2. **Restore everything into a folder** (default `/tmp/status-led-restore`) — then copy back whatever you want.
+3. **Restore one specific path** (e.g. `/etc`, or a single file).
+
+Nothing is overwritten automatically: restored files land in a folder *you* choose, so you stay in control of what goes back.
+
+#### Browsing the backup like normal files
+
+Pick option 1. The backup is mounted at `/mnt/status-led-restore`. Open a **second terminal** (or a file manager) and copy things out:
+
+```bash
+ls /mnt/status-led-restore/snapshots/latest/
+cp -a /mnt/status-led-restore/snapshots/latest/home/USER/Documents/file.txt ~/
+```
+
+Press **Ctrl+C** in the first terminal when you are done.
+
+#### Disaster recovery — on a new / empty Raspberry Pi
+
+If the Pi was replaced and the configuration is gone, restore by hand. You need three things: the **share path**, an **SMB user + password** with access, and the **restic password** (the one you wrote down!).
+
+```bash
+# 1) install the tools
+sudo apt update && sudo apt install -y restic cifs-utils
+
+# 2) mount the backup share read-only
+sudo mkdir -p /mnt/restore
+sudo mount -t cifs //10.10.9.220/HausBackup /mnt/restore -o ro,username=YOURUSER
+#    (type the SMB password when asked)
+
+# 3) point restic at the repository (the subfolder you chose during setup)
+export RESTIC_REPOSITORY=/mnt/restore/status-led-restic
+restic snapshots          # asks for the restic password and lists the backups
+
+# 4) restore everything into a folder
+restic restore latest --target /tmp/restore
+#    your files are now under /tmp/restore (original paths as subfolders)
+```
+
+> **Tip:** for a single item add `--include`, e.g. `restic restore latest --target /tmp/restore --include /etc/fstab`. To browse instead: `sudo apt install -y fuse3`, then `mkdir /mnt/r && restic mount /mnt/r` and look under `/mnt/r/snapshots/latest/`.
 
 ### Custom backup job instead
 
@@ -597,6 +651,12 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.4.0] — 2026-06-28
+
+**Added**
+- Guided **restore** wizard (`status-led restore` / `restore.sh`): mounts the backup share read-only, lists snapshots and offers a beginner-friendly menu (browse & copy single files, restore everything to a folder, restore one path). Nothing is overwritten automatically.
+- README restore documentation for non-experts, including **disaster recovery on a new/empty Pi** and a clear warning to keep the restic password off the Pi.
 
 ### [1.3.2] — 2026-06-28
 
