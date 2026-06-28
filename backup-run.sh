@@ -52,8 +52,13 @@ if [ "${TARGET_TYPE:-smb}" = "smb" ]; then
     if ! mountpoint -q "$MOUNTPOINT"; then
         opts="credentials=$SMB_CREDENTIALS,uid=0,gid=0,file_mode=0600,dir_mode=0700"
         [ -n "${SMB_OPTIONS:-}" ] && opts="$opts,$SMB_OPTIONS"
-        mount -t cifs "$SMB_SHARE" "$MOUNTPOINT" -o "$opts" \
-            || fail "Mount der Freigabe $SMB_SHARE fehlgeschlagen"
+        if ! mount -t cifs "$SMB_SHARE" "$MOUNTPOINT" -o "$opts"; then
+            echo "Hinweis: nur //Server/Freigabe mounten (keine Unterordner); bei" >&2
+            echo "  'Permission denied' Zugangsdaten/Freigabename pruefen, bei aelteren" >&2
+            echo "  NAS ggf. SMB_OPTIONS=vers=3.0 oder sec=ntlmssp setzen (status-led backup-setup)." >&2
+            echo "  Details: dmesg | tail" >&2
+            fail "Mount der Freigabe $SMB_SHARE fehlgeschlagen"
+        fi
         MOUNTED_BY_US=1
     fi
     mkdir -p "$RESTIC_REPOSITORY"

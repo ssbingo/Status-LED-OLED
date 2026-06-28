@@ -570,6 +570,11 @@ Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart
 - **Ursache:** Booten von SD-Karte (SD-Karten haben kein SMART) oder eine USB-SSD, deren Brücke von `smartctl --scan` nicht automatisch erkannt wird.
 - **Lösung:** Mit `status-led diag` prüfen. Bei einer USB-SSD probiert die Abfrage automatisch `-d sat`; manuell testen mit `sudo smartctl -d sat -i /dev/sda`. Klappt auch das nicht, braucht deine USB-Brücke einen speziellen Treiber (`-d sntjmicron`, `-d sntasmedia`, …).
 
+### ▶ Backup kann die SMB-Freigabe nicht mounten (`mount error(2)` / `mount error(13)`)
+- **`mount error(2) No such file or directory`** — du hast den **kompletten Pfad inkl. Unterordner** als Freigabe angegeben. CIFS mountet nur `//Server/Freigabe`; noch nicht existierende Unterordner lassen sich nicht mounten.
+- **`mount error(13) Permission denied`** — falsche Zugangsdaten, oder der Pfad ist keine echte Freigabe. Bei **Synology** ist die Freigabe der **freigegebene Ordnername** (z. B. `//10.0.0.5/HausBackup`), *nicht* der interne Pfad `//10.0.0.5/volume1/HausBackup`.
+- **Lösung:** `sudo status-led backup-setup` erneut ausführen und als Freigabe nur `//Server/Freigabe` angeben; Unterordner (z. B. `host/restic`) beim Punkt **Repo-Unterordner** eintragen. Bei älteren NAS `vers=3.0` oder `sec=ntlmssp` unter „Mount-Optionen" ergänzen. Manuell testen: `sudo mount -t cifs //Server/Freigabe /mnt/test -o username=USER` und `dmesg | tail` prüfen.
+
 ### Nützliche Diagnose-Befehle
 
 ```bash
@@ -590,6 +595,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.3.1] — 2026-06-28
+
+**Behoben**
+- Die Backup-Einrichtung trennt jetzt die **SMB-Freigabe** (nur `//Server/Freigabe`, validiert) vom **Repo-Unterordner** (beliebige Tiefe), sodass tiefe Pfade und der Synology-`volumeX/...`-Fehler keine `mount error(2)/(13)` mehr verursachen. Der Runner mountet nur die Freigabe und legt die Unterordner selbst an. Klarere Mount-Fehlerhinweise und ein Troubleshooting-Eintrag.
 
 ### [1.3.0] — 2026-06-27
 

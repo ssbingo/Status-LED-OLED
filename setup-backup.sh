@@ -83,13 +83,34 @@ fi
 
 # --- SMB-Ziel ----------------------------------------------------------------
 echo; c_info "Ziel (SMB-Netzwerkfreigabe)"
-SMB_SHARE="$(ask 'Freigabe (//Server/Freigabe)' "${SMB_SHARE:-//nas/backup}")"
+echo "  Nur Server + Freigabename angeben - KEINE Unterordner!"
+echo "  Synology-Beispiel:  //10.10.9.220/HausBackup"
+echo "  (der freigegebene Ordnername - NICHT der interne Pfad mit volume1/...)."
+while :; do
+    SMB_SHARE="$(ask 'SMB-Freigabe (//Server/Freigabe)' "${SMB_SHARE:-//nas/backup}")"
+    SMB_SHARE="${SMB_SHARE//\\//}"     # Backslashes -> Slashes
+    SMB_SHARE="${SMB_SHARE%/}"          # Slash am Ende entfernen
+    if [[ ! "$SMB_SHARE" =~ ^//[^/]+/[^/]+$ ]]; then
+        c_warn "Format: //Server/Freigabe - genau EIN Freigabename, keine Unterordner."
+        continue
+    fi
+    seg="${SMB_SHARE##*/}"
+    if [[ "$seg" =~ ^[Vv]olume[0-9] ]]; then
+        c_warn "'$seg' sieht nach einem Synology-Volume aus, nicht nach einer Freigabe."
+        c_warn "Die Freigabe ist der freigegebene Ordnername (z. B. HausBackup)."
+        ask_yesno "Trotzdem '$seg' als Freigabe verwenden?" 0 || continue
+    fi
+    break
+done
 SMB_USER="$(ask 'SMB-Benutzername' "${SMB_USER:-}")"
 SMB_PASS="$(ask_secret 'SMB-Passwort')"
 SMB_DOMAIN="$(ask 'SMB-Domain/Workgroup (optional, leer lassen)' "")"
 MOUNTPOINT="$(ask 'Lokaler Mountpoint' '/mnt/status-led-backup')"
-SMB_SUBDIR="$(ask 'Unterordner auf der Freigabe fuer das Repo' 'restic')"
-SMB_OPTIONS="$(ask 'Zusaetzliche Mount-Optionen (optional, z. B. vers=3.0)' '')"
+echo "  Unterordner IM Ziel fuer das restic-Repository (beliebige Tiefe erlaubt,"
+echo "  z. B. mh-deconz/mh-deconz-01/restic) - wird automatisch angelegt."
+REPO_SUBPATH="$(ask 'Repo-Unterordner' 'status-led-restic')"
+REPO_SUBPATH="${REPO_SUBPATH#/}"; REPO_SUBPATH="${REPO_SUBPATH%/}"
+SMB_OPTIONS="$(ask 'Zusaetzliche Mount-Optionen (optional, z. B. vers=3.0 oder sec=ntlmssp)' '')"
 
 # --- restic-Repo-Passwort ----------------------------------------------------
 echo; c_info "restic-Repository-Passwort (verschluesselt das Backup - gut merken!)"
@@ -129,7 +150,7 @@ case "$FREQ_CHOICE" in
     *) ONCALENDAR="*-*-* $HH:$MM:00";    FREQ="daily"   ;;
 esac
 
-RESTIC_REPOSITORY="$MOUNTPOINT/$SMB_SUBDIR"
+RESTIC_REPOSITORY="$MOUNTPOINT${REPO_SUBPATH:+/$REPO_SUBPATH}"
 
 # --- Dateien schreiben -------------------------------------------------------
 mkdir -p "$CONFIG_DIR"

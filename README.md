@@ -572,6 +572,11 @@ The following cases come from a real setup — from the service start to the fli
 - **Cause:** Booting from an SD card (SD cards have no SMART), or a USB SSD whose bridge isn't auto-detected by `smartctl --scan`.
 - **Fix:** Check with `status-led diag`. For a USB SSD the probe automatically retries with `-d sat`; verify manually with `sudo smartctl -d sat -i /dev/sda`. If even that fails, your USB bridge needs a specific driver (`-d sntjmicron`, `-d sntasmedia`, …).
 
+### ▶ Backup fails to mount the SMB share (`mount error(2)` / `mount error(13)`)
+- **`mount error(2) No such file or directory`** — you gave the **full path including subfolders** as the share. CIFS mounts only `//server/share`; subfolders that don't exist yet can't be mounted.
+- **`mount error(13) Permission denied`** — wrong credentials, or the path isn't a real share. On **Synology** the share is the **shared-folder name** (e.g. `//10.0.0.5/HausBackup`), *not* the internal path `//10.0.0.5/volume1/HausBackup`.
+- **Fix:** Re-run `sudo status-led backup-setup` and enter only `//server/share` as the share; put any subfolders (e.g. `host/restic`) into the **repo subfolder** prompt. For older NAS add `vers=3.0` or `sec=ntlmssp` under "Mount-Optionen". Test manually: `sudo mount -t cifs //server/share /mnt/test -o username=USER` and check `dmesg | tail`.
+
 ### Useful diagnostic commands
 
 ```bash
@@ -592,6 +597,11 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.3.1] — 2026-06-28
+
+**Fixed**
+- Backup setup now separates the **SMB share** (`//server/share` only, validated) from the **repo subfolder** (any depth), so deep paths and Synology `volumeX/...` mistakes no longer cause `mount error(2)/(13)`. The runner mounts only the share and creates the subfolders. Clearer mount-error hints and a troubleshooting entry.
 
 ### [1.3.0] — 2026-06-27
 
