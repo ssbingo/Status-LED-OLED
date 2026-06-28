@@ -598,6 +598,11 @@ journalctl -u status-led -e            # service log with errors
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.3.2] — 2026-06-28
+
+**Fixed**
+- Backup no longer reports a failure when restic exits with **code 3** (snapshot created, but some files such as caches or `.gvfs` could not be read). This is now treated as success. Also sets a persistent `RESTIC_CACHE_DIR` so the systemd run no longer warns about a missing cache/`$HOME`.
+
 ### [1.3.1] — 2026-06-28
 
 **Fixed**

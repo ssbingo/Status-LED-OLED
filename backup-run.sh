@@ -65,6 +65,10 @@ if [ "${TARGET_TYPE:-smb}" = "smb" ]; then
 fi
 
 export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+# Persistenter Cache (der systemd-Dienst hat kein $HOME) - vermeidet Warnung
+# und beschleunigt Folge-Backups.
+export RESTIC_CACHE_DIR="${RESTIC_CACHE_DIR:-/var/cache/status-led-restic}"
+mkdir -p "$RESTIC_CACHE_DIR" 2>/dev/null || true
 
 # --- Repository initialisieren, falls noch nicht vorhanden -------------------
 if ! restic cat config >/dev/null 2>&1; then
@@ -81,7 +85,13 @@ done
 echo "Starte Backup der Pfade: ${BACKUP_SOURCES}"
 # BACKUP_SOURCES bewusst ohne Quotes (mehrere Pfade per Wort-Splitting)
 # shellcheck disable=SC2086
-if restic backup --tag status-led "${exargs[@]}" ${BACKUP_SOURCES}; then
+restic backup --tag status-led "${exargs[@]}" ${BACKUP_SOURCES}
+rc=$?
+
+# restic-Exit-Codes: 0 = ok; 3 = Snapshot erstellt, aber einzelne Dateien nicht
+# lesbar (z. B. Caches, .gvfs, offene Sockets) - das ist KEIN Backup-Fehler.
+if [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ]; then
+    [ "$rc" -eq 3 ] && echo "Hinweis: einzelne Dateien konnten nicht gelesen werden (Code 3) - Snapshot wurde dennoch erstellt."
     # --- Aufbewahrung / Prune ---
     fargs=()
     [ -n "${KEEP_DAILY:-}" ]   && fargs+=(--keep-daily "$KEEP_DAILY")
@@ -94,5 +104,5 @@ if restic backup --tag status-led "${exargs[@]}" ${BACKUP_SOURCES}; then
     write_status ok
     echo "Backup erfolgreich abgeschlossen."
 else
-    fail "restic backup fehlgeschlagen"
+    fail "restic backup fehlgeschlagen (Exit-Code $rc)"
 fi

@@ -596,6 +596,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.3.2] — 2026-06-28
+
+**Behoben**
+- Das Backup meldet keinen Fehler mehr, wenn restic mit **Code 3** endet (Snapshot erstellt, aber einzelne Dateien wie Caches oder `.gvfs` nicht lesbar). Das gilt jetzt als Erfolg. Zudem wird ein persistenter `RESTIC_CACHE_DIR` gesetzt, sodass der systemd-Lauf nicht mehr über fehlenden Cache/`$HOME` warnt.
+
 ### [1.3.1] — 2026-06-28
 
 **Behoben**
