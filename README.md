@@ -484,14 +484,14 @@ sudo mount -t cifs //10.10.9.220/HausBackup /mnt/restore -o ro,username=YOURUSER
 
 # 3) point restic at the repository (the subfolder you chose during setup)
 export RESTIC_REPOSITORY=/mnt/restore/status-led-restic
-restic snapshots          # asks for the restic password and lists the backups
+restic snapshots --no-lock   # asks for the restic password and lists the backups
 
 # 4) restore everything into a folder
-restic restore latest --target /tmp/restore
+restic restore --no-lock latest --target /tmp/restore
 #    your files are now under /tmp/restore (original paths as subfolders)
 ```
 
-> **Tip:** for a single item add `--include`, e.g. `restic restore latest --target /tmp/restore --include /etc/fstab`. To browse instead: `sudo apt install -y fuse3`, then `mkdir /mnt/r && restic mount /mnt/r` and look under `/mnt/r/snapshots/latest/`.
+> **`--no-lock`** is needed because the share is mounted read-only (restic otherwise tries to write a lock file). For a single item add `--include`, e.g. `restic restore --no-lock latest --target /tmp/restore --include /etc/fstab`. To browse instead: `sudo apt install -y fuse3`, then `mkdir /mnt/r && restic mount --no-lock /mnt/r` and look under `/mnt/r/snapshots/latest/`.
 
 ### Custom backup job instead
 
@@ -651,6 +651,11 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.4.1] — 2026-06-28
+
+**Fixed**
+- Restore failed with "read-only file system" because restic tried to create a lock on the read-only mount. Restore operations now use `--no-lock` (`status-led restore` and the disaster-recovery docs).
 
 ### [1.4.0] — 2026-06-28
 

@@ -73,7 +73,9 @@ mkdir -p "$RESTIC_CACHE_DIR" 2>/dev/null || true
 
 echo
 c_info "Vorhandene Sicherungen (Snapshots):"
-if ! restic snapshots; then
+# --no-lock: das Repo liegt auf einer nur-lesend gemounteten Freigabe, restic
+# darf daher keine Lock-Datei schreiben.
+if ! restic snapshots --no-lock; then
     c_err "Konnte die Sicherungen nicht lesen (restic-Passwort oder Repository-Pfad falsch?)."
     exit 1
 fi
@@ -104,14 +106,14 @@ case "$choice" in
         echo "  Wenn du fertig bist: hier Strg+C druecken."
         echo
         RESTIC_MOUNTED=1
-        restic mount "$RESTORE_MNT" || true
+        restic mount --no-lock "$RESTORE_MNT" || true
         RESTIC_MOUNTED=0
         ;;
     2)
         tgt="$(ask 'Zielordner (wird angelegt)' '/tmp/status-led-restore')"
         mkdir -p "$tgt"
         c_info "Stelle die neueste Sicherung nach $tgt wieder her ..."
-        if restic restore latest --target "$tgt"; then
+        if restic restore --no-lock latest --target "$tgt"; then
             c_ok "Fertig. Die Daten liegen unter $tgt (Originalpfade als Unterordner)."
         else
             c_err "Wiederherstellung fehlgeschlagen."
@@ -122,7 +124,7 @@ case "$choice" in
         tgt="$(ask 'Zielordner (wird angelegt)' '/tmp/status-led-restore')"
         mkdir -p "$tgt"
         c_info "Stelle $p nach $tgt wieder her ..."
-        if restic restore latest --target "$tgt" --include "$p"; then
+        if restic restore --no-lock latest --target "$tgt" --include "$p"; then
             c_ok "Fertig. Siehe ${tgt}${p}"
         else
             c_err "Wiederherstellung fehlgeschlagen."

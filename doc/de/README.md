@@ -484,14 +484,14 @@ sudo mount -t cifs //10.10.9.220/HausBackup /mnt/restore -o ro,username=DEINUSER
 
 # 3) restic auf das Repository zeigen lassen (der bei der Einrichtung gewaehlte Unterordner)
 export RESTIC_REPOSITORY=/mnt/restore/status-led-restic
-restic snapshots          # fragt nach dem restic-Passwort und listet die Sicherungen
+restic snapshots --no-lock   # fragt nach dem restic-Passwort und listet die Sicherungen
 
 # 4) alles in einen Ordner wiederherstellen
-restic restore latest --target /tmp/restore
+restic restore --no-lock latest --target /tmp/restore
 #    deine Daten liegen jetzt unter /tmp/restore (Originalpfade als Unterordner)
 ```
 
-> **Tipp:** Für eine einzelne Sache `--include` anhängen, z. B. `restic restore latest --target /tmp/restore --include /etc/fstab`. Zum Durchsuchen stattdessen: `sudo apt install -y fuse3`, dann `mkdir /mnt/r && restic mount /mnt/r` und unter `/mnt/r/snapshots/latest/` schauen.
+> **`--no-lock`** ist nötig, weil die Freigabe nur lesend gemountet ist (restic würde sonst eine Lock-Datei schreiben wollen). Für eine einzelne Sache `--include` anhängen, z. B. `restic restore --no-lock latest --target /tmp/restore --include /etc/fstab`. Zum Durchsuchen stattdessen: `sudo apt install -y fuse3`, dann `mkdir /mnt/r && restic mount --no-lock /mnt/r` und unter `/mnt/r/snapshots/latest/` schauen.
 
 ### Stattdessen ein eigener Backup-Job
 
@@ -649,6 +649,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.4.1] — 2026-06-28
+
+**Behoben**
+- Der Restore scheiterte mit „read-only file system", weil restic auf der nur lesend gemounteten Freigabe eine Lock-Datei anlegen wollte. Lese-/Restore-Operationen nutzen jetzt `--no-lock` (`status-led restore` und die Notfall-Anleitung).
 
 ### [1.4.0] — 2026-06-28
 
