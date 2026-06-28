@@ -178,13 +178,26 @@ install -m 0755 "$INSTALL_DIR/status-led" "$WRAPPER" 2>/dev/null || {
 }
 c_ok "Befehl 'status-led' installiert."
 
+# --- Optionales restic-Backup -------------------------------------------------
+echo
+if have_tty; then
+    a="$(ask_tty 'Automatisches restic-Backup jetzt einrichten? (j/N): ')"
+    case "${a,,}" in
+        j|ja|y|yes) "$INSTALL_DIR/setup-backup.sh" || c_warn "Backup-Assistent abgebrochen." ;;
+        *) c_info "Backup uebersprungen (spaeter: sudo status-led backup-setup)" ;;
+    esac
+else
+    c_info "Kein Terminal - Backup spaeter mit: sudo status-led backup-setup"
+fi
+
 # --- Abschluss ----------------------------------------------------------------
 echo
 c_info "Fertig. Naechste Schritte:"
 echo "    status-led status     # Dienststatus"
 echo "    status-led logs       # Live-Log"
-echo "    status-led setup      # Konfiguration erneut anpassen"
-echo "    status-led update     # spaeter auf neue Version aktualisieren"
+echo "    status-led setup        # Konfiguration erneut anpassen"
+echo "    status-led backup-setup # Backup einrichten/aendern"
+echo "    status-led update       # spaeter auf neue Version aktualisieren"
 echo
 if [ "$REBOOT_NEEDED" -eq 1 ]; then
     c_warn "Interface-/Audio-Aenderungen brauchen einen Neustart."

@@ -404,9 +404,44 @@ Der Neustart braucht Root-Rechte — beim empfohlenen PWM-Setup läuft der Diens
 
 ---
 
-## 12. Backup-Status anbinden (optional)
+## 12. Automatisches Backup mit restic (optional)
 
-Das Skript liest den Backup-Zustand aus `/run/status-led/backup`. Fehlt die Datei, wird kein Backup-Zustand angezeigt. Der Backup-Job schreibt `running`, `ok` oder `failed` hinein:
+Das Projekt kann ein unbeaufsichtigtes **restic**-Backup auf eine **SMB-Netzwerkfreigabe** einrichten, geplant über einen systemd-Timer. Es bedient die vorhandenen Backup-Zustände automatisch: während ein Backup läuft, pulsiert die LED **cyan** („Backup laeuft…"), ein Fehler zeigt **magenta** („Backup-Fehler!") bis zum nächsten Erfolg.
+
+### Einrichten
+
+`install.sh` fragt, ob ein Backup eingerichtet werden soll. Du kannst es jederzeit (erneut) starten:
+
+```bash
+sudo status-led backup-setup
+```
+
+Der Assistent fragt: **Häufigkeit** (täglich / wöchentlich / monatlich) und **Uhrzeit** (hh:mm), die **SMB-Freigabe** `//server/share` samt Zugangsdaten, das **restic-Repository-Passwort**, die **Quellpfade** (Standard `/home /etc`) und die **Aufbewahrung** (täglich / wöchentlich / monatlich behalten). Anschließend installiert er `restic` + `cifs-utils`, schreibt die Konfiguration, legt systemd-Service + -Timer an und bietet an, sofort das **erste Backup** zu starten (das initialisiert das Repository).
+
+### Befehle
+
+```bash
+sudo status-led backup         # jetzt ein Backup ausfuehren
+sudo status-led backup-setup   # Zeitplan / Ziel / Pfade aendern
+status-led backup-status       # Timer und letztes Log anzeigen
+```
+
+### Angelegte Dateien
+
+| Datei | Zweck |
+|---|---|
+| `/etc/status-led/backup.env` | nicht-geheime Einstellungen (Ziel, Mountpoint, Repo-Pfad, Quellen, Aufbewahrung) |
+| `/etc/status-led/restic-password` (0600) | restic-Repository-Passwort |
+| `/etc/status-led/smb-credentials` (0600) | SMB-Benutzer / -Passwort |
+| `status-led-backup.service` / `.timer` | der geplante Job (`OnCalendar`, `Persistent=true`) |
+
+**Funktionsweise:** Der Runner (`backup-run.sh`) mountet die SMB-Freigabe bei Bedarf, führt `restic backup` aus (initialisiert das Repo beim ersten Lauf), dann `restic forget --prune` für die Aufbewahrung, und schreibt `running`/`ok`/`failed` nach `/run/status-led/backup`. Anschließend wird die Freigabe wieder ausgehängt.
+
+> **Sicherheit:** restic-Passwort und SMB-Zugangsdaten liegen in nur für root lesbaren Dateien (0600), damit unbeaufsichtigte Backups laufen können. Der Backup-Dienst läuft als root (nötig zum Mounten der Freigabe und Lesen aller Quellpfade).
+
+### Stattdessen ein eigener Backup-Job
+
+Wenn du lieber deinen eigenen Backup-Job nutzt, lass ihn einfach `running`, `ok` oder `failed` nach `/run/status-led/backup` schreiben — LED/OLED spiegeln das wider:
 
 ```bash
 #!/bin/bash
@@ -555,6 +590,12 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 16. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.3.0] — 2026-06-27
+
+**Hinzugefügt**
+- Optionales automatisches **restic-Backup** auf eine SMB-Freigabe, bei der Installation frei wählbar. `status-led backup-setup` fragt Häufigkeit (täglich/wöchentlich/monatlich) + Uhrzeit, Ziel-Freigabe + Zugangsdaten, restic-Passwort, Quellpfade und Aufbewahrung ab, legt systemd-Service + -Timer an und kann das erste Backup sofort starten.
+- Neue Skripte `backup-run.sh` (Runner: mounten → restic backup → forget/prune → Statusdatei) und `setup-backup.sh` (Assistent); `status-led`-Befehle `backup`, `backup-setup`, `backup-status`. Das Backup schreibt `/run/status-led/backup`, daher zeigen LED/OLED den Backup-Zustand automatisch.
 
 ### [1.2.5] — 2026-06-27
 

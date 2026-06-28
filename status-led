@@ -15,15 +15,20 @@ status-led - Verwaltung der Status-LED + OLED
 
 Verwendung: status-led <befehl>
 
-  setup      Konfigurations-Assistent (schreibt $CONFIG_FILE)
-  update     auf die neueste Version aktualisieren
-  status     Dienststatus anzeigen
-  logs       Live-Log anzeigen (Strg+C beendet)
-  restart    Dienst neu starten
-  diag       Hardware-Diagnose (OLED/SMART/Luefter)
-  version    installierte Version anzeigen
+  setup         Konfigurations-Assistent (schreibt $CONFIG_FILE)
+  update        auf die neueste Version aktualisieren
+  status        Dienststatus anzeigen
+  logs          Live-Log anzeigen (Strg+C beendet)
+  restart       Dienst neu starten
+  diag          Hardware-Diagnose (OLED/SMART/Luefter)
+  backup        jetzt ein Backup ausfuehren
+  backup-setup  Backup einrichten/aendern (restic)
+  backup-status Backup-Zeitplan und letztes Log anzeigen
+  version       installierte Version anzeigen
 EOF
 }
+
+backup_ready() { [ -f /etc/systemd/system/status-led-backup.service ]; }
 
 case "${1:-}" in
     setup)   exec sudo "$VENV_PY" "$INSTALL_DIR/status_led.py" --setup --config "$CONFIG_FILE" ;;
@@ -32,6 +37,24 @@ case "${1:-}" in
     logs)    exec journalctl -u status-led -f ;;
     restart) exec sudo systemctl restart status-led.service ;;
     diag)    exec sudo "$VENV_PY" "$INSTALL_DIR/status_led.py" --diag --config "$CONFIG_FILE" ;;
+    backup)
+        if backup_ready; then
+            sudo systemctl start status-led-backup.service
+            journalctl -u status-led-backup -n 20 --no-pager
+        else
+            echo "Backup nicht eingerichtet - 'sudo status-led backup-setup' ausfuehren."; exit 1
+        fi
+        ;;
+    backup-setup)  exec sudo "$INSTALL_DIR/setup-backup.sh" ;;
+    backup-status)
+        if backup_ready; then
+            systemctl list-timers status-led-backup.timer --no-pager || true
+            echo
+            journalctl -u status-led-backup -n 25 --no-pager
+        else
+            echo "Backup nicht eingerichtet - 'sudo status-led backup-setup' ausfuehren."; exit 1
+        fi
+        ;;
     version) exec "$VENV_PY" "$INSTALL_DIR/status_led.py" --version ;;
     ""|-h|--help|help) usage ;;
     *) echo "Unbekannter Befehl: $1"; echo; usage; exit 1 ;;

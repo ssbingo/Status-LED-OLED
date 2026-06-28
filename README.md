@@ -404,9 +404,44 @@ The reboot needs root privileges — with the recommended PWM setup the service 
 
 ---
 
-## 12. Connect a backup status (optional)
+## 12. Automated backup with restic (optional)
 
-The script reads the backup state from `/run/status-led/backup`. If the file is missing, no backup state is shown. Your backup job writes `running`, `ok` or `failed` into it:
+The project can set up an unattended **restic** backup to an **SMB network share**, scheduled by a systemd timer. It drives the existing backup states automatically: while a backup runs the LED pulses **cyan** ("Backup laeuft..."), a failure shows **magenta** ("Backup-Fehler!") until the next success.
+
+### Set it up
+
+`install.sh` asks whether to configure a backup. You can also (re)run it any time:
+
+```bash
+sudo status-led backup-setup
+```
+
+The wizard asks for: **frequency** (daily / weekly / monthly) and **time** (hh:mm), the **SMB share** `//server/share` and its credentials, the **restic repository password**, the **source paths** (default `/home /etc`) and the **retention** (keep daily / weekly / monthly). It then installs `restic` + `cifs-utils`, writes the config, creates the systemd service + timer, and offers to run the **first backup** right away (which initialises the repository).
+
+### Commands
+
+```bash
+sudo status-led backup         # run a backup now
+sudo status-led backup-setup   # change schedule / target / paths
+status-led backup-status       # show the timer and the last run's log
+```
+
+### Files it creates
+
+| File | Purpose |
+|---|---|
+| `/etc/status-led/backup.env` | non-secret settings (target, mountpoint, repo path, sources, retention) |
+| `/etc/status-led/restic-password` (0600) | restic repository password |
+| `/etc/status-led/smb-credentials` (0600) | SMB username / password |
+| `status-led-backup.service` / `.timer` | the scheduled job (`OnCalendar`, `Persistent=true`) |
+
+**How it works:** the runner (`backup-run.sh`) mounts the SMB share on demand, runs `restic backup` (initialising the repo on first run), then `restic forget --prune` for retention, and writes `running`/`ok`/`failed` to `/run/status-led/backup`. The share is unmounted again afterwards.
+
+> **Security:** the restic password and SMB credentials are stored in root-only (0600) files so unattended backups can run. The backup service runs as root (needed to mount the share and read all source paths).
+
+### Custom backup job instead
+
+If you prefer your own backup job, just have it write `running`, `ok` or `failed` to `/run/status-led/backup` — the LED/OLED reflect it:
 
 ```bash
 #!/bin/bash
@@ -557,6 +592,12 @@ journalctl -u status-led -e            # service log with errors
 ## 16. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.3.0] — 2026-06-27
+
+**Added**
+- Optional automated **restic backup** to an SMB share, opt-in during install. `status-led backup-setup` asks for frequency (daily/weekly/monthly) + time, target share + credentials, restic password, source paths and retention, then creates a systemd service + timer and can run the first backup immediately.
+- New scripts `backup-run.sh` (runner: mount → restic backup → forget/prune → status file) and `setup-backup.sh` (wizard); `status-led` commands `backup`, `backup-setup`, `backup-status`. The backup writes `/run/status-led/backup`, so LED/OLED show the backup state automatically.
 
 ### [1.2.5] — 2026-06-27
 
