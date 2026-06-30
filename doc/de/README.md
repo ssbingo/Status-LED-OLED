@@ -516,7 +516,7 @@ fi
 
 ## 13. Web-Dashboard (optional)
 
-Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Ein plastisches **LED-Symbol im Kopfbereich** spiegelt auf jedem Tab die Farbe der echten LED samt Blink-/Pulsmuster. Die Netzwerk-Karte zeigt zusätzlich den aktiven Adapter und dessen **MAC-Adresse**. Sie zeigt exakt dieselben Werte wie LED/OLED. Die Seite hat drei Tabs: **Übersicht** (Live-Werte), **Backup** (Zeitplan, letzter Lauf, Ergebnis und aktuelles Log) und **System** (Dienst-Status).
+Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Ein plastisches **LED-Symbol im Kopfbereich** spiegelt auf jedem Tab die Farbe der echten LED samt Blink-/Pulsmuster. Die Netzwerk-Karte zeigt zusätzlich den aktiven Adapter und dessen **MAC-Adresse**. Sie zeigt exakt dieselben Werte wie LED/OLED. Die Seite hat vier Tabs: **Übersicht** (Live-Werte), **Backup** (Zeitplan, letzter Lauf, Ergebnis und aktuelles Log), **System** (Dienst-Status) und **Wartung** (Update + Dienst-Neustart, optional).
 
 ### Einrichten
 
@@ -549,9 +549,21 @@ Der Hauptdienst schreibt etwa alle 2 s einen Schnappschuss nach `/run/status-led
 
 - **Übersicht** — die Live-Werte mit den animierten Gauges und Verlaufsgrafiken.
 - **Backup** — Zeitplan (nächster / letzter Lauf), Ergebnis und die letzten Log-Zeilen (nur lesend). Zeigt einen Hinweis, wenn kein Backup eingerichtet ist.
-- **System** — Status (aktiv / inaktiv) der Dienste `status-led`, Web und Backup.
+- **System** — Status (aktiv / inaktiv) der Dienste `status-led`, Web und Backup, jeweils mit **Neustart**-Button (wenn die Steuerung aktiv ist).
+- **Wartung** — **Update** ausführen (und installierte Version sehen); nur wenn die Steuerung aktiv ist.
 
 Die Backup-/System-Daten stammen aus nur lesenden `systemctl`- / `journalctl`-Abfragen (`/api/backup`, `/api/system`). Das Lesen des Journals erfordert den Web-Benutzer in der Gruppe `systemd-journal` — `web-setup` richtet das ein; **bestehende Installationen sollten einmal `sudo status-led web-setup` erneut ausführen**, damit das Backup-Log erscheint.
+
+### Steuer-Aktionen: Update & Neustart (Opt-in)
+
+Der **Wartung**-Tab und die **Neustart**-Buttons im System-Tab können Update bzw. Dienst-Neustart aus dem Browser auslösen. Das sind **privilegierte** Aktionen — daher **standardmäßig aus**, freischaltbar in `status-led web-setup` („Steuer-Aktionen erlauben?").
+
+- Bei Freigabe läuft der Web-Dienst **als root** (dieses Modell wurde gewählt), damit er `systemctl` / das Update ausführen kann. Ohne Freigabe bleibt er unprivilegiert und rein lesend.
+- Erlaubte Aktionen sind eine feste Allowlist (`update`, Neustart der drei Units) — nichts aus der Anfrage fließt in einen Befehl.
+- Anfragen sind **POST**, brauchen Passwort **und** einen Custom-Header (CSRF-Schutz), und der Browser fragt vorher zur Bestätigung.
+- **Update** läuft als entkoppeltes oneshot-Unit (`status-led-update.service`), damit es den Web-Dienst neu starten kann, ohne die Anfrage abzuwürgen; die Seite verbindet sich neu und lädt neu, sobald wieder erreichbar.
+
+> **Sicherheitshinweis:** Ein netzwerkseitiger Dienst als root ist bequem, aber eine größere Angriffsfläche. Das Dashboard nur im vertrauenswürdigen LAN betreiben (oder per SSH-Tunnel / HTTPS-Reverse-Proxy) und die Steuerung nur aktivieren, wenn du sie brauchst.
 
 ---
 
@@ -691,6 +703,12 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 17. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.7.0] — 2026-06-28
+
+**Hinzugefügt**
+- Optionale **Steuer-Aktionen** im Web-Dashboard: ein **Wartung**-Tab mit **Update**-Button und **Neustart**-Buttons pro Dienst im **System**-Tab. Über einen POST-Endpunkt `/api/action` mit fester Aktions-Allowlist, der Passwort + Custom-Header (CSRF-Schutz) und eine Browser-Bestätigung verlangt.
+- Freischaltung in `status-led web-setup` (standardmäßig aus); bei Freigabe läuft der Web-Dienst als root und ein entkoppeltes `status-led-update.service` führt das Update aus, damit es den Web-Dienst sicher neu starten kann.
 
 ### [1.6.0] — 2026-06-28
 

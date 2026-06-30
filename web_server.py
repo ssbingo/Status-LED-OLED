@@ -30,6 +30,17 @@ STATE_PATH = os.environ.get("WEB_STATE_PATH", "/run/status-led/state.json")
 SECRET_PATH = os.environ.get("WEB_SECRET", "/etc/status-led/web.secret")
 REALM = "Status-LED"
 
+# Steuer-Aktionen (Update/Neustart) nur, wenn ausdruecklich freigeschaltet.
+# Dann laeuft der Dienst als root (siehe setup-web.sh) und darf genau diese
+# fest verdrahteten Befehle ausfuehren - nichts aus der Anfrage wird interpoliert.
+CONTROL = os.environ.get("WEB_CONTROL", "0") == "1"
+ACTIONS = {
+    "update":             ["systemctl", "start", "--no-block", "status-led-update.service"],
+    "restart:status-led": ["systemctl", "restart", "--no-block", "status-led.service"],
+    "restart:web":        ["systemctl", "restart", "--no-block", "status-led-web.service"],
+    "restart:backup":     ["systemctl", "restart", "--no-block", "status-led-backup.timer"],
+}
+
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -114,7 +125,7 @@ def system_info() -> dict:
             services.append({"name": label, "unit": unit,
                              "active": d.get("ActiveState", ""), "sub": d.get("SubState", ""),
                              "since": d.get("ActiveEnterTimestamp", "")})
-    return {"services": services}
+    return {"services": services, "control": CONTROL}
 
 
 def load_credentials() -> tuple[str, str] | None:
@@ -173,8 +184,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _send_json(self, obj) -> None:
-        self._send(200, json.dumps(obj).encode("utf-8"), CONTENT_TYPES[".json"], no_store=True)
+    def _send_json(self, obj, code: int = 200) -> None:
+        self._send(code, json.dumps(obj).encode("utf-8"), CONTENT_TYPES[".json"], no_store=True)
 
     def _serve_state(self) -> None:
         try:
@@ -219,6 +230,36 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_static(path)
 
     do_HEAD = do_GET
+
+    def do_POST(self) -> None:
+        if not self._authorized():
+            self._require_auth()
+            return
+        if self.path != "/api/action":
+            self._send(404, b"Not Found", "text/plain; charset=utf-8")
+            return
+        if not CONTROL:
+            self._send_json({"ok": False, "error": "Steuerung ist deaktiviert (status-led web-setup)."}, 403)
+            return
+        # CSRF-Schutz: ein Custom-Header, den nur unsere Seite (fetch) setzen kann.
+        if self.headers.get("X-Status-LED-Action") is None:
+            self._send_json({"ok": False, "error": "fehlender Header"}, 403)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            data = json.loads(self.rfile.read(length) or b"{}") if length else {}
+        except (ValueError, OSError):
+            data = {}
+        cmd = ACTIONS.get(data.get("action", ""))
+        if not cmd:
+            self._send_json({"ok": False, "error": "unbekannte Aktion"}, 400)
+            return
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            ok = r.returncode == 0
+            self._send_json({"ok": ok, "error": "" if ok else (r.stderr.strip() or "Fehler")})
+        except (OSError, subprocess.SubprocessError) as e:
+            self._send_json({"ok": False, "error": str(e)}, 500)
 
 
 def main() -> None:

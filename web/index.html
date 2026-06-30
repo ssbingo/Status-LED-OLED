@@ -26,6 +26,7 @@
     <button class="tab active" data-tab="overview">Übersicht</button>
     <button class="tab" data-tab="backup">Backup</button>
     <button class="tab" data-tab="system">System</button>
+    <button class="tab" data-tab="maint">Wartung</button>
   </nav>
 
   <main>
@@ -173,6 +174,24 @@
         <div class="card wide">
           <div class="card-h">Dienste</div>
           <div class="svc-list" id="sys-services"><span class="muted">…</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Wartung ============ -->
+    <section id="tab-maint" class="tabpanel">
+      <div class="grid">
+        <div class="card wide">
+          <div class="card-h">Wartung</div>
+          <div id="maint-disabled" class="muted" hidden>
+            Steuerung ist deaktiviert. Auf dem Pi <code>sudo status-led web-setup</code>
+            ausführen und „Steuer-Aktionen erlauben" wählen.
+          </div>
+          <div id="maint-actions" hidden>
+            <div class="kv"><span>Installierte Version</span><b id="maint-version">–</b></div>
+            <button class="btn" id="btn-update">Update ausführen</button>
+            <div class="action-msg" id="maint-msg"></div>
+          </div>
         </div>
       </div>
     </section>

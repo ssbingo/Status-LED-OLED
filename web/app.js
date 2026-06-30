@@ -3,6 +3,9 @@
 const REFRESH_MS = 2000;
 const C = 2 * Math.PI * 52;   // Umfang der Gauge-Kreise (r = 52)
 const WARN_STATES = ["backup_failed", "network_down", "smart_warn", "fan_warn", "diskspace_low"];
+let lastState = null;
+let controlEnabled = false;
+let reconnecting = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -70,6 +73,7 @@ function setLive(online) {
 }
 
 function render(s) {
+  lastState = s;
   // Kopf
   $("host").textContent = s.host.name || "–";
   $("ip").textContent = s.host.ip || "–";
@@ -197,23 +201,105 @@ async function loadBackup() {
   $("bk-log").textContent = b.log || "(kein Log-Zugriff – auf dem Pi 'sudo status-led web-setup' erneut ausführen, um Journal-Rechte zu setzen)";
 }
 
+// ---- Steuer-Aktionen (Update / Neustart) ------------------------------------
+async function doAction(action) {
+  const r = await fetch("api/action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Status-LED-Action": "1" },
+    body: JSON.stringify({ action })
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return true;
+}
+
+// Wartet, bis der Server wieder antwortet (nach Web-Neustart / Update) -> Reload
+function waitReconnect(msgEl) {
+  if (reconnecting) return;
+  reconnecting = true;
+  let tries = 0;
+  const iv = setInterval(async () => {
+    tries++;
+    try {
+      const r = await fetch("api/state", { cache: "no-store" });
+      if (r.ok) { clearInterval(iv); location.reload(); return; }
+    } catch (e) { /* noch offline */ }
+    if (tries > 40) {
+      clearInterval(iv); reconnecting = false;
+      if (msgEl) msgEl.textContent = "Zeitüberschreitung – bitte die Seite manuell neu laden.";
+    }
+  }, 3000);
+}
+
+const SVC_ACTION = {
+  "status-led.service": "restart:status-led",
+  "status-led-web.service": "restart:web",
+  "status-led-backup.timer": "restart:backup",
+};
+
+async function onRestart(svc, action, btn) {
+  if (!confirm(`${svc.name} wirklich neu starten?`)) return;
+  btn.disabled = true; btn.textContent = "…";
+  // Neustart des Web-Dienstes kappt die eigene Verbindung -> als Erfolg behandeln
+  if (action === "restart:web") { doAction(action).catch(() => {}); waitReconnect(); return; }
+  try {
+    await doAction(action);
+    btn.textContent = "OK";
+    setTimeout(loadSystem, 2500);
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Neustart"; }, 3000);
+  } catch (e) {
+    btn.textContent = "Fehler"; btn.disabled = false;
+    alert("Neustart fehlgeschlagen: " + e.message);
+    setTimeout(() => btn.textContent = "Neustart", 2000);
+  }
+}
+
 // ---- System-Tab -------------------------------------------------------------
 async function loadSystem() {
   let d;
   try { d = await (await fetch("api/system", { cache: "no-store" })).json(); }
   catch (e) { return; }
+  controlEnabled = !!d.control;
   const el = $("sys-services");
   el.textContent = "";
   (d.services || []).forEach(s => {
     const cls = s.active === "active" ? "on" : (s.active === "not-installed" ? "off" : "warn");
     const row = document.createElement("div");
     row.className = "svc";
-    row.innerHTML = `<span class="svc-dot ${cls}"></span>`
-      + `<span class="svc-name"></span><span class="svc-state"></span>`;
-    row.querySelector(".svc-name").textContent = s.name;
-    row.querySelector(".svc-state").textContent = s.active + (s.sub ? " · " + s.sub : "");
+    const dot = document.createElement("span"); dot.className = "svc-dot " + cls;
+    const name = document.createElement("span"); name.className = "svc-name"; name.textContent = s.name;
+    const st = document.createElement("span"); st.className = "svc-state";
+    st.textContent = s.active + (s.sub ? " · " + s.sub : "");
+    row.append(dot, name, st);
+    if (controlEnabled && SVC_ACTION[s.unit] && s.active !== "not-installed") {
+      const b = document.createElement("button");
+      b.className = "btn small"; b.textContent = "Neustart";
+      b.addEventListener("click", () => onRestart(s, SVC_ACTION[s.unit], b));
+      row.append(b);
+    }
     el.appendChild(row);
   });
+}
+
+// ---- Wartungs-Tab -----------------------------------------------------------
+async function loadMaint() {
+  let d;
+  try { d = await (await fetch("api/system", { cache: "no-store" })).json(); }
+  catch (e) { d = {}; }
+  const on = !!d.control;
+  controlEnabled = on;
+  $("maint-disabled").hidden = on;
+  $("maint-actions").hidden = !on;
+  $("maint-version").textContent = lastState ? ("v" + lastState.version) : "–";
+}
+
+async function onUpdate() {
+  if (!confirm("Update jetzt ausführen? Der Dienst startet dabei neu.")) return;
+  const btn = $("btn-update"), msg = $("maint-msg");
+  btn.disabled = true;
+  msg.textContent = "Update gestartet… die Seite verbindet sich neu, sobald es fertig ist.";
+  doAction("update").catch(() => {});   // Verbindung kann durch den Neustart abbrechen
+  waitReconnect(msg);
 }
 
 // ---- Tabs -------------------------------------------------------------------
@@ -224,10 +310,12 @@ function selectTab(name) {
   document.querySelectorAll(".tabpanel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
   if (name === "backup") loadBackup();
   else if (name === "system") loadSystem();
+  else if (name === "maint") loadMaint();
 }
 document.querySelectorAll(".tab").forEach(t =>
   t.addEventListener("click", () => { location.hash = t.dataset.tab; }));
 window.addEventListener("hashchange", () => selectTab(location.hash.slice(1) || "overview"));
+$("btn-update").addEventListener("click", onUpdate);
 selectTab(location.hash.slice(1) || "overview");
 
 poll();

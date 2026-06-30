@@ -68,6 +68,16 @@ while :; do
     c_warn "Passwoerter leer oder ungleich - bitte erneut."
 done
 
+# --- Steuer-Aktionen (Update/Neustart per Button) ----------------------------
+echo; c_info "Steuerung (optional)"
+echo "  Erlaubt Update und Dienst-Neustart per Button in der Weboberflaeche."
+echo "  ACHTUNG: dazu laeuft der Webserver als root (groessere Angriffsflaeche)."
+if ask_yesno "Steuer-Aktionen (Update/Neustart) erlauben?" 0; then
+    WEB_CONTROL=1; SERVICE_USER="root"
+else
+    WEB_CONTROL=0; SERVICE_USER="$WEB_USER"
+fi
+
 # --- Dienst-Benutzer (unprivilegiert) ----------------------------------------
 if ! id -u "$WEB_USER" >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$WEB_USER"
@@ -84,6 +94,7 @@ WEB_BIND=$WEB_BIND
 WEB_PORT=$WEB_PORT
 WEB_STATE_PATH=$STATE_PATH
 WEB_SECRET=$SECRET_FILE
+WEB_CONTROL=$WEB_CONTROL
 EOF
 chmod 644 "$ENV_FILE"
 
@@ -106,7 +117,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=$WEB_USER
+User=$SERVICE_USER
 EnvironmentFile=$ENV_FILE
 ExecStart=$INSTALL_DIR/venv/bin/python $INSTALL_DIR/web_server.py
 Restart=always
@@ -115,6 +126,19 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# Update per Button: entkoppeltes oneshot-Unit (laeuft unabhaengig vom Web-Request,
+# darf daher auch den Web-Dienst selbst neu starten).
+if [ "$WEB_CONTROL" = "1" ]; then
+    cat > /etc/systemd/system/status-led-update.service <<EOF
+[Unit]
+Description=Status-LED self-update (ausgeloest aus der Weboberflaeche)
+
+[Service]
+Type=oneshot
+ExecStart=$INSTALL_DIR/update.sh
+EOF
+fi
 
 systemctl daemon-reload
 systemctl enable --now status-led-web.service >/dev/null 2>&1 || systemctl restart status-led-web.service
@@ -127,3 +151,6 @@ echo
 c_ok "Fertig. Aufruf im Browser:  http://${IP:-<pi-ip>}:$WEB_PORT/"
 echo "    Benutzer: $WEB_USERNAME"
 echo "    Status:   status-led web    |    Log: journalctl -u status-led-web -f"
+if [ "$WEB_CONTROL" = "1" ]; then
+    c_warn "Steuerung aktiv: Update + Dienst-Neustart per Button moeglich (Web laeuft als root)."
+fi

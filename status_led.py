@@ -50,7 +50,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen

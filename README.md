@@ -516,7 +516,7 @@ fi
 
 ## 13. Web dashboard (optional)
 
-A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). A glossy **LED indicator in the header** mirrors the real LED's colour and its blink/pulse pattern on every tab. The network card also shows the active adapter and its **MAC address**. It shows exactly the same data as the LED/OLED. The page has three tabs: **Übersicht** (live values), **Backup** (schedule, last run, result and recent log) and **System** (service health).
+A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). A glossy **LED indicator in the header** mirrors the real LED's colour and its blink/pulse pattern on every tab. The network card also shows the active adapter and its **MAC address**. It shows exactly the same data as the LED/OLED. The page has four tabs: **Übersicht** (live values), **Backup** (schedule, last run, result and recent log), **System** (service health) and **Wartung** (update + service restart, opt-in).
 
 ### Set it up
 
@@ -549,9 +549,21 @@ The main service writes a snapshot to `/run/status-led/state.json` about every 2
 
 - **Übersicht** — the live values with the animated gauges and history charts.
 - **Backup** — schedule (next / last run), result and the last log lines (read-only). Shows a hint if no backup is configured.
-- **System** — health (active / inactive) of the `status-led`, web and backup services.
+- **System** — health (active / inactive) of the `status-led`, web and backup services, each with a **Restart** button (if control is enabled).
+- **Wartung** — run an **Update** (and see the installed version); only if control is enabled.
 
 Backup/System data comes from read-only `systemctl` / `journalctl` queries (`/api/backup`, `/api/system`). Reading the journal needs the web user in the `systemd-journal` group — `web-setup` sets this up; **existing installs should re-run `sudo status-led web-setup` once** so the Backup log appears.
+
+### Control actions: update & restart (opt-in)
+
+The **Wartung** tab and the **System** restart buttons can run an update or restart a service from the browser. These are **privileged** actions, so they are **off by default** and enabled in `status-led web-setup` (“Steuer-Aktionen erlauben?”).
+
+- When enabled, the web service runs **as root** (you chose this model) so it can run `systemctl` / the updater. When disabled it stays unprivileged and read-only.
+- Allowed actions are a fixed allowlist (`update`, restart of the three units) — nothing from the request is interpolated into a command.
+- Requests are **POST**, need the password **and** a custom header (CSRF guard), and the browser asks for confirmation first.
+- **Update** runs as a detached oneshot unit (`status-led-update.service`) so it can restart the web service without cutting the request; the page reconnects and reloads when it's back.
+
+> **Security note:** running a network-facing service as root is convenient but a larger attack surface. Keep the dashboard on a trusted LAN (or behind an SSH tunnel / HTTPS reverse proxy), and only enable control if you need it.
 
 ---
 
@@ -693,6 +705,12 @@ journalctl -u status-led -e            # service log with errors
 ## 17. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.7.0] — 2026-06-28
+
+**Added**
+- Opt-in **control actions** in the web dashboard: a **Wartung** tab with an **Update** button and **Restart** buttons per service in the **System** tab. Backed by a POST `/api/action` endpoint with a fixed action allowlist, requiring auth + a custom header (CSRF guard) and a browser confirmation.
+- Enabled via `status-led web-setup` (off by default); when enabled the web service runs as root and a detached `status-led-update.service` performs the update so it can restart the web service safely.
 
 ### [1.6.0] — 2026-06-28
 
