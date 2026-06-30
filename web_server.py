@@ -118,7 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._send(404, b"Not Found", "text/plain; charset=utf-8")
             return
-        self._send(200, body, CONTENT_TYPES.get(ext, "application/octet-stream"))
+        # no_store verhindert, dass der Browser nach einem Update veraltete
+        # index.html/app.js/style.css mischt (sonst passen IDs nicht zusammen).
+        self._send(200, body, CONTENT_TYPES.get(ext, "application/octet-stream"), no_store=True)
 
     def do_GET(self) -> None:
         if not self._authorized():

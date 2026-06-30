@@ -48,6 +48,9 @@ fi
 
 c_info "Starte Dienst neu..."
 systemctl restart status-led.service
+# Web-Dashboard (falls eingerichtet) ebenfalls neu starten, damit Code-Aenderungen
+# am Webserver wirksam werden.
+systemctl try-restart status-led-web.service 2>/dev/null || true
 
 if [ "$OLD_VER" = "$NEW_VER" ]; then
     c_ok "Bereits aktuell ($NEW_VER)."

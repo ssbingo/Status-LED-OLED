@@ -684,6 +684,11 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.5.2] — 2026-06-28
+
+**Behoben**
+- Das Web-Dashboard konnte nach einem Update leer erscheinen, weil der Browser eine alte gecachte `index.html` mit der neuen `app.js` mischte (geänderte Element-IDs). Statische Dateien werden jetzt mit `Cache-Control: no-store` ausgeliefert, das Rendern ist gekapselt (ein Fehler stoppt die Live-Aktualisierung nicht mehr), und `update.sh` startet zusätzlich `status-led-web.service` neu.
+
 ### [1.5.1] — 2026-06-28
 
 **Hinzugefügt**

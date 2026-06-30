@@ -686,6 +686,11 @@ journalctl -u status-led -e            # service log with errors
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.5.2] — 2026-06-28
+
+**Fixed**
+- Web dashboard could appear blank after an update because the browser mixed a cached old `index.html` with the new `app.js` (changed element IDs). Static files are now served with `Cache-Control: no-store`, rendering is wrapped so a single error can't stop the live updates, and `update.sh` now also restarts `status-led-web.service`.
+
 ### [1.5.1] — 2026-06-28
 
 **Added**

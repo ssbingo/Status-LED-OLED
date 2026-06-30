@@ -144,7 +144,7 @@ async function poll() {
     if (!r.ok) throw new Error("HTTP " + r.status);
     const s = await r.json();
     if (s.error) throw new Error(s.error);
-    render(s);
+    try { render(s); } catch (e) { console.error("render", e); }   // ein Fehler darf das Polling nicht stoppen
     const ageOk = (Date.now() / 1000 - s.ts) < (REFRESH_MS / 1000) * 3;
     setLive(ageOk);
   } catch (e) {
