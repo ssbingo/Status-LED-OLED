@@ -210,7 +210,10 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now status-led-backup.timer >/dev/null 2>&1 || true
+systemctl enable status-led-backup.timer >/dev/null 2>&1 || true
+# restart (nicht 'enable --now'): so wird ein geaenderter Zeitplan auch beim
+# erneuten Einrichten wirklich uebernommen.
+systemctl restart status-led-backup.timer
 c_ok "Zeitplan aktiv: $FREQ um $BACKUP_TIME  (OnCalendar=$ONCALENDAR)"
 echo
 systemctl list-timers status-led-backup.timer --no-pager 2>/dev/null || true

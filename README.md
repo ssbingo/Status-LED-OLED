@@ -706,6 +706,12 @@ journalctl -u status-led -e            # service log with errors
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.7.1] — 2026-06-28
+
+**Fixed**
+- Re-running `web-setup` (or `backup-setup`) did not apply the changed unit, because `systemctl enable --now` does not restart an already-running service. The setup scripts (and `install.sh`) now always `restart` — so enabling control (web as root) / changing the backup schedule takes effect immediately.
+- Web "online/offline" indicator no longer depends on the browser↔Pi clock difference; it now tracks whether the status data keeps advancing.
+
 ### [1.7.0] — 2026-06-28
 
 **Added**

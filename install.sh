@@ -169,7 +169,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now status-led.service >/dev/null 2>&1 || systemctl restart status-led.service
+systemctl enable status-led.service >/dev/null 2>&1 || true
+systemctl restart status-led.service          # immer neu starten -> geaenderte Unit/Code wirkt sofort
 c_ok "Dienst aktiviert und gestartet."
 
 # --- CLI-Wrapper installieren -------------------------------------------------

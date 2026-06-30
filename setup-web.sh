@@ -141,7 +141,10 @@ EOF
 fi
 
 systemctl daemon-reload
-systemctl enable --now status-led-web.service >/dev/null 2>&1 || systemctl restart status-led-web.service
+systemctl enable status-led-web.service >/dev/null 2>&1 || true
+# Immer neu starten (nicht 'enable --now'): so wird die geaenderte Unit
+# (User, WEB_CONTROL) auch bei einem erneuten Lauf wirklich uebernommen.
+systemctl restart status-led-web.service
 # Hauptdienst neu starten, damit die Statusdatei sicher erzeugt wird
 systemctl try-restart status-led.service 2>/dev/null || true
 c_ok "Web-Dienst aktiviert."

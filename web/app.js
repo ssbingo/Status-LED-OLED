@@ -6,6 +6,7 @@ const WARN_STATES = ["backup_failed", "network_down", "smart_warn", "fan_warn", 
 let lastState = null;
 let controlEnabled = false;
 let reconnecting = false;
+let prevTs = null, staleCount = 0;   // Liveness ueber "Daten laufen weiter" (unabhaengig von der Uhrzeit)
 
 const $ = (id) => document.getElementById(id);
 
@@ -159,8 +160,11 @@ async function poll() {
     const s = await r.json();
     if (s.error) throw new Error(s.error);
     try { render(s); } catch (e) { console.error("render", e); }   // ein Fehler darf das Polling nicht stoppen
-    const ageOk = (Date.now() / 1000 - s.ts) < (REFRESH_MS / 1000) * 3;
-    setLive(ageOk);
+    // online, solange die Statusdatei weiterlaeuft (ts aendert sich); 3 Polls
+    // (~6 s) ohne Aenderung -> Hauptdienst steht -> offline. Keine Uhrzeit-Annahme.
+    if (prevTs !== null && s.ts === prevTs) staleCount++; else staleCount = 0;
+    prevTs = s.ts;
+    setLive(staleCount < 3);
   } catch (e) {
     setLive(false);
   }
