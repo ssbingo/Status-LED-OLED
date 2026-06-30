@@ -34,17 +34,29 @@ body {
 .brand { display: flex; align-items: center; gap: 14px; }
 
 /* ---- Plastische LED (zeigt die LED-Farbe, auf allen Tabs im Kopf) ---- */
-.led { --led: #30d158; position: relative; width: 30px; height: 30px;
+.led { --led: #30d158; position: relative; width: 34px; height: 34px;
   display: inline-grid; place-items: center; flex: none; }
 .led-dot {
-  width: 24px; height: 24px; border-radius: 50%;
+  position: relative; width: 27px; height: 27px; border-radius: 50%;
   background:
-    radial-gradient(circle at 33% 27%, rgba(255,255,255,.95) 0%, rgba(255,255,255,.2) 13%, transparent 34%),
-    radial-gradient(circle at 50% 58%, var(--led) 36%, rgba(0,0,0,.62) 125%);
-  box-shadow: 0 0 13px 2px var(--led), inset 0 -3px 5px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.35);
-  box-shadow: 0 0 16px 3px color-mix(in srgb, var(--led) 70%, transparent),
-              inset 0 -3px 5px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.4);
+    radial-gradient(circle at 50% 62%, var(--led) 30%, rgba(0,0,0,.7) 130%);
+  box-shadow:
+    0 0 22px 5px var(--led),
+    inset 0 -4px 7px rgba(0,0,0,.6),
+    inset 0 3px 6px rgba(255,255,255,.5);
+  box-shadow:
+    0 0 24px 6px color-mix(in srgb, var(--led) 80%, transparent),
+    0 0 6px 1px color-mix(in srgb, var(--led) 90%, transparent),
+    inset 0 -4px 7px rgba(0,0,0,.6),
+    inset 0 3px 6px rgba(255,255,255,.55);
   transition: background .5s ease, box-shadow .5s ease;
+}
+/* Glanzpunkt (Spiegelung) fuer den plastischen, glaenzenden Look */
+.led-dot::after {
+  content: ""; position: absolute; top: 12%; left: 22%; width: 42%; height: 32%;
+  border-radius: 50%; transform: rotate(-18deg);
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,.98), rgba(255,255,255,.55) 35%, rgba(255,255,255,0) 72%);
+  filter: blur(.3px);
 }
 .led.pulse .led-dot { animation: ledpulse 1.6s ease-in-out infinite; }
 .led.blink .led-dot { animation: ledblink 1s steps(1) infinite; }
@@ -104,21 +116,13 @@ main { padding: 18px 22px 40px; }
 /* ---- Status card ---- */
 .status-card { align-items: stretch; }
 .badge {
-  display: flex; align-items: center; justify-content: center; gap: 11px;
-  font-weight: 700; font-size: 17px; padding: 13px 12px; border-radius: 12px;
-  color: var(--fg); background: var(--card2); border: 1px solid var(--line);
+  text-align: center; font-weight: 700; font-size: 18px; padding: 16px 12px;
+  border-radius: 12px; color: #06121f; background: var(--green);
+  box-shadow: 0 0 16px -2px var(--green);
+  transition: background .5s ease, color .5s ease, box-shadow .5s ease;
 }
-.bdot {
-  --led: #30d158; width: 15px; height: 15px; border-radius: 50%; flex: none;
-  background:
-    radial-gradient(circle at 33% 27%, rgba(255,255,255,.95) 0%, transparent 40%),
-    radial-gradient(circle at 50% 58%, var(--led) 38%, rgba(0,0,0,.55) 130%);
-  box-shadow: 0 0 9px 1px var(--led);
-  box-shadow: 0 0 11px 2px color-mix(in srgb, var(--led) 70%, transparent);
-  transition: background .5s ease, box-shadow .5s ease;
-}
-.badge.pulse .bdot { animation: ledpulse 1.6s ease-in-out infinite; }
-.badge.blink .bdot { animation: ledblink 1s steps(1) infinite; }
+.badge.pulse { animation: ledpulse 1.6s ease-in-out infinite; }
+.badge.blink { animation: ledblink 1s steps(1) infinite; }
 
 /* ---- Fan ---- */
 .fan-card .fan { width: 110px; height: 110px; }
@@ -137,15 +141,25 @@ main { padding: 18px 22px 40px; }
 .arr.down { color: var(--accent); }
 .arr.up { color: var(--amber); }
 
-/* ---- Sparklines ---- */
+/* ---- Sparklines / Mini-Charts ---- */
 .spark { width: 100%; height: 38px; }
-.spark.tall { height: 64px; }
+.spark.tall { height: 60px; }
 .spark polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke;
   stroke-linejoin: round; stroke-linecap: round; }
 .spark-rx { stroke: var(--accent); }
 .spark-tx { stroke: var(--amber); }
 .spark-cpu { stroke: #ff7a59; }
 .spark-ram { stroke: #6ea8fe; }
+
+/* Mini-Koordinatensystem (CPU/RAM-Verlauf): Achsen + Gitter + Beschriftung */
+.spark .axis { stroke: var(--muted); stroke-width: 1; opacity: .55; vector-effect: non-scaling-stroke; }
+.spark .grid-l { stroke: var(--line); stroke-width: 1; opacity: .6; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.chart { position: relative; width: 100%; padding: 2px 4px 14px 24px; }
+.chart .ylab { position: absolute; left: 0; width: 22px; text-align: right;
+  font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chart .ylab.top { top: 0; }
+.chart .ylab.bot { bottom: 14px; }
+.chart .xlab { position: absolute; right: 6px; bottom: 1px; font-size: 9px; color: var(--muted); }
 
 /* ---- Placeholder ---- */
 .placeholder { max-width: 560px; margin: 30px auto; text-align: center; color: var(--fg); }

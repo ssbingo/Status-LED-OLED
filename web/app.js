@@ -29,6 +29,13 @@ function fillColor(pct) {
 function getCss(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
+// Lesbare Textfarbe (schwarz/weiss) zur Hintergrundfarbe
+function idealText(hex) {
+  const c = (hex || "").replace("#", "");
+  if (c.length < 6) return "#06121f";
+  const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 140 ? "#06121f" : "#ffffff";
+}
 
 function setGauge(arcId, numId, pct, label, color) {
   pct = Math.max(0, Math.min(100, pct || 0));
@@ -78,7 +85,9 @@ function render(s) {
   led.classList.toggle("blink", blink);
 
   const badge = $("status-badge");
-  $("status-dot").style.setProperty("--led", s.status.color);
+  badge.style.background = s.status.color;
+  badge.style.color = idealText(s.status.color);
+  badge.style.boxShadow = `0 0 16px -2px ${s.status.color}`;
   $("status-text").textContent = s.status.text;
   badge.classList.toggle("pulse", pulse);
   badge.classList.toggle("blink", blink);
@@ -90,6 +99,7 @@ function render(s) {
     : (s.cpu.temp_c >= s.cpu.threshold_c ? getCss("--amber") : getCss("--green"));
   setGauge("cpu-arc", "cpu-num", (s.cpu.temp_c / tMax) * 100, Math.round(s.cpu.temp_c), cpuColor);
   $("cpu-load").textContent = `${s.cpu.load1.toFixed(2)} / ${s.cpu.cores}`;
+  $("cpu-ymax").textContent = Math.round(tMax) + "°";
 
   // RAM
   setGauge("ram-arc", "ram-num", s.ram.percent, Math.round(s.ram.percent), fillColor(s.ram.percent));

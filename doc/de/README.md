@@ -684,6 +684,13 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.5.3] — 2026-06-28
+
+**Geändert**
+- Web: CPU- und RAM-Verlauf haben jetzt ein kleines Koordinatensystem (x/y-Achsen, Gitter, Wertebeschriftung).
+- Web: die Kopf-LED glänzt stärker (Glanzpunkt + kräftigeres Leuchten).
+- Web: die Statuskachel hat wieder einen farbigen Hintergrund (mit automatischer Kontrastschrift), zusätzlich zur Kopf-LED.
+
 ### [1.5.2] — 2026-06-28
 
 **Behoben**

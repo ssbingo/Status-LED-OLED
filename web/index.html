@@ -35,10 +35,7 @@
         <!-- Status -->
         <div class="card status-card" id="status-card">
           <div class="card-h">Status</div>
-          <div class="badge" id="status-badge">
-            <span class="bdot" id="status-dot"></span>
-            <span id="status-text">…</span>
-          </div>
+          <div class="badge" id="status-badge"><span id="status-text">…</span></div>
           <div class="kv"><span>Backup</span><b id="backup-state">–</b></div>
           <div class="kv"><span>Uptime</span><b id="uptime">–</b></div>
         </div>
@@ -113,17 +110,35 @@
         <!-- Verlauf CPU-Temp -->
         <div class="card">
           <div class="card-h">CPU-Temp · Verlauf</div>
-          <svg class="spark tall" viewBox="0 0 100 50" preserveAspectRatio="none">
-            <polyline id="cpu-spark" class="spark-cpu" points=""></polyline>
-          </svg>
+          <div class="chart">
+            <svg class="spark tall" viewBox="0 0 100 50" preserveAspectRatio="none">
+              <line class="grid-l" x1="0" y1="16.7" x2="100" y2="16.7"></line>
+              <line class="grid-l" x1="0" y1="33.3" x2="100" y2="33.3"></line>
+              <line class="axis" x1="0" y1="0" x2="0" y2="50"></line>
+              <line class="axis" x1="0" y1="50" x2="100" y2="50"></line>
+              <polyline id="cpu-spark" class="spark-cpu" points=""></polyline>
+            </svg>
+            <span class="ylab top" id="cpu-ymax">–</span>
+            <span class="ylab bot">0</span>
+            <span class="xlab">3 min</span>
+          </div>
         </div>
 
         <!-- Verlauf RAM -->
         <div class="card">
           <div class="card-h">RAM · Verlauf</div>
-          <svg class="spark tall" viewBox="0 0 100 50" preserveAspectRatio="none">
-            <polyline id="ram-spark" class="spark-ram" points=""></polyline>
-          </svg>
+          <div class="chart">
+            <svg class="spark tall" viewBox="0 0 100 50" preserveAspectRatio="none">
+              <line class="grid-l" x1="0" y1="16.7" x2="100" y2="16.7"></line>
+              <line class="grid-l" x1="0" y1="33.3" x2="100" y2="33.3"></line>
+              <line class="axis" x1="0" y1="0" x2="0" y2="50"></line>
+              <line class="axis" x1="0" y1="50" x2="100" y2="50"></line>
+              <polyline id="ram-spark" class="spark-ram" points=""></polyline>
+            </svg>
+            <span class="ylab top">100%</span>
+            <span class="ylab bot">0</span>
+            <span class="xlab">3 min</span>
+          </div>
         </div>
 
       </div>

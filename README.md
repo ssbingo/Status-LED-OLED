@@ -686,6 +686,13 @@ journalctl -u status-led -e            # service log with errors
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+### [1.5.3] — 2026-06-28
+
+**Changed**
+- Web: CPU and RAM history charts now have a small coordinate system (x/y axes, gridlines, value labels).
+- Web: the header LED is glossier (specular highlight + stronger glow).
+- Web: the status tile is back to a coloured background (with auto-contrast text), in addition to the header LED.
+
 ### [1.5.2] — 2026-06-28
 
 **Fixed**
