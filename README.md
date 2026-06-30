@@ -23,7 +23,7 @@ A status LED (WS2812B) plus a 128×32 OLED (SSD1306 / Adafruit PiOLED) on a Rasp
 - **LED yellow blinking** — low free disk space
 - **LED cyan pulsing** — backup running
 - **LED amber pulsing** — high CPU load
-- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text; further pages (push button) show the installed version, hostname, uptime, network throughput, and — if enabled — disk temperature and fan speed
+- **OLED** — continuously shows IP address, CPU temperature + load, RAM usage and the state in plain text; further pages (push button) show the installed version, MAC address, hostname, uptime, network throughput, and — if enabled — disk temperature and fan speed
 
 > All states and thresholds are configurable in `/etc/status-led/config.toml` (see section 8). The optional SMART and fan states are off by default.
 
@@ -397,7 +397,7 @@ journalctl -u status-led -f
 
 A push button on **GPIO17 (pin 11)** controls the display and can reboot the Pi:
 
-- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview (IP, CPU, RAM, status); the following pages each show one value on its own in a **large, auto-fitted font**, in this order: **installed version** (first), IP, **hostname** (right after IP), CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
+- **Short press** — advances the display by one page. Page 0 is the familiar 4-line overview (IP, CPU, RAM, status); the following pages each show one value on its own in a **large, auto-fitted font**, in this order: **installed version** (first), IP, **MAC address** (right after IP), **hostname**, CPU, RAM, status, **uptime**, **network throughput** (↓ rx / ↑ tx) and — if enabled — **disk temperature** and **fan speed**. After the last page it wraps back to the overview.
 - **Auto-return** — after about 30 seconds without a press the display jumps back to the overview (page 0). Configurable via `oled.page_timeout_s`.
 - **Long press (≥ 5 s)** — reboots the Pi. The OLED shows “Neustart…” and the LED turns red; this message stays for `button.reboot_message_s` seconds (default 3) before `systemctl reboot` runs. The hold time is set by `button.long_press_s`.
 
@@ -516,7 +516,7 @@ fi
 
 ## 13. Web dashboard (optional)
 
-A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). It shows exactly the same data as the LED/OLED. Later it grows into tabs (“Übersicht”, “Backup”, …); the tab bar is already in place.
+A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). A glossy **LED indicator in the header** mirrors the real LED's colour and its blink/pulse pattern on every tab. The network card also shows the active adapter and its **MAC address**. It shows exactly the same data as the LED/OLED. Later it grows into tabs (“Übersicht”, “Backup”, …); the tab bar is already in place.
 
 ### Set it up
 
@@ -685,6 +685,15 @@ journalctl -u status-led -e            # service log with errors
 ## 17. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.5.1] — 2026-06-28
+
+**Added**
+- MAC address of the active network card (default-route NIC): shown as the OLED step right after the IP page, and in the web network card (with the adapter name).
+- A glossy **LED indicator in the web header** (on every tab) that mirrors the real LED's colour and blink/pulse pattern.
+
+**Changed**
+- The web status badge is now a neutral card with a small colour dot (instead of a fully colour-filled block), so the LED colour is shown by the header indicator rather than as a large background.
 
 ### [1.5.0] — 2026-06-28
 

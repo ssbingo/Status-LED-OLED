@@ -23,7 +23,7 @@ Diese Anleitung richtet eine Status-LED (WS2812B) und parallel ein 128×32-OLED 
 - **LED gelb blinkend** — wenig freier Speicherplatz
 - **LED cyan pulsierend** — Backup läuft
 - **LED bernstein pulsierend** — hohe CPU-Last
-- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext; weitere Seiten (Taster) zeigen die installierte Version, den Hostnamen, Uptime, Netzwerk-Durchsatz und — falls aktiviert — Festplattentemperatur und Lüfterdrehzahl
+- **OLED** — zeigt durchgehend IP-Adresse, CPU-Temperatur + Last, RAM-Auslastung und den Zustand im Klartext; weitere Seiten (Taster) zeigen die installierte Version, die MAC-Adresse, den Hostnamen, Uptime, Netzwerk-Durchsatz und — falls aktiviert — Festplattentemperatur und Lüfterdrehzahl
 
 > Alle Zustände und Schwellen sind in `/etc/status-led/config.toml` konfigurierbar (siehe Abschnitt 8). Die optionalen SMART- und Lüfter-Zustände sind standardmäßig aus.
 
@@ -397,7 +397,7 @@ journalctl -u status-led -f
 
 Ein Taster an **GPIO17 (Pin 11)** steuert das Display und kann den Pi neu starten:
 
-- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht (IP, CPU, RAM, Status); die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**, in dieser Reihenfolge: **installierte Version** (zuerst), IP, **Hostname** (direkt nach IP), CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
+- **Kurzer Druck** — schaltet das Display eine Seite weiter. Seite 0 ist die gewohnte 4-Zeilen-Übersicht (IP, CPU, RAM, Status); die folgenden Seiten zeigen je einen Wert einzeln in **großer, automatisch eingepasster Schrift**, in dieser Reihenfolge: **installierte Version** (zuerst), IP, **MAC-Adresse** (direkt nach IP), **Hostname**, CPU, RAM, Status, **Uptime**, **Netzwerk-Durchsatz** (↓ rx / ↑ tx) und — falls aktiviert — **Festplattentemperatur** und **Lüfterdrehzahl**. Nach der letzten Seite geht es zurück zur Übersicht.
 - **Auto-Rücksprung** — nach etwa 30 Sekunden ohne Tastendruck springt das Display zurück zur Übersicht (Seite 0). Einstellbar über `oled.page_timeout_s`.
 - **Langer Druck (≥ 5 s)** — startet den Pi neu. Das OLED zeigt „Neustart…“ und die LED wird rot; diese Meldung bleibt `button.reboot_message_s` Sekunden stehen (Standard 3), bevor `systemctl reboot` läuft. Die Haltedauer legt `button.long_press_s` fest.
 
@@ -516,7 +516,7 @@ fi
 
 ## 13. Web-Dashboard (optional)
 
-Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Sie zeigt exakt dieselben Werte wie LED/OLED. Später wächst sie zu Tabs („Übersicht", „Backup", …); die Tableiste ist bereits angelegt.
+Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Ein plastisches **LED-Symbol im Kopfbereich** spiegelt auf jedem Tab die Farbe der echten LED samt Blink-/Pulsmuster. Die Netzwerk-Karte zeigt zusätzlich den aktiven Adapter und dessen **MAC-Adresse**. Sie zeigt exakt dieselben Werte wie LED/OLED. Später wächst sie zu Tabs („Übersicht", „Backup", …); die Tableiste ist bereits angelegt.
 
 ### Einrichten
 
@@ -683,6 +683,15 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 17. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.5.1] — 2026-06-28
+
+**Hinzugefügt**
+- MAC-Adresse der aktiven Netzwerkkarte (Default-Route): als OLED-Step direkt nach der IP-Seite und in der Netzwerk-Karte der Webseite (samt Adaptername).
+- Ein plastisches **LED-Symbol im Kopf der Webseite** (auf jedem Tab), das Farbe und Blink-/Pulsmuster der echten LED spiegelt.
+
+**Geändert**
+- Das Status-Badge der Webseite ist jetzt eine neutrale Karte mit kleinem Farbpunkt (statt einer vollflächig eingefärbten Fläche) — die LED-Farbe zeigt nun das Kopf-Symbol statt eines großen Hintergrunds.
 
 ### [1.5.0] — 2026-06-28
 

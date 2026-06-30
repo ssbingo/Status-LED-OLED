@@ -133,6 +133,11 @@ class TestBuildState(unittest.TestCase):
         s = self._state(disk_free_pct=78.0)
         self.assertAlmostEqual(s["disk"]["used_percent"], 22.0, places=1)
 
+    def test_net_has_mac_and_iface(self):
+        s = self._state()
+        self.assertIn("mac", s["net"])
+        self.assertIn("iface", s["net"])
+
     def test_fan_available_flag(self):
         self.assertFalse(self._state()["fan"]["available"])
         self.assertTrue(self._state(fan_rpm=1500)["fan"]["available"])
@@ -176,9 +181,13 @@ class TestOledFields(unittest.TestCase):
     def test_version_value_matches(self):
         self.assertEqual(dict(self._fields())["Ver"], sl.__version__)
 
-    def test_hostname_directly_after_ip(self):
+    def test_mac_directly_after_ip(self):
         labels = [label for label, _ in self._fields()]
-        self.assertEqual(labels[labels.index("IP") + 1], "Host")
+        self.assertEqual(labels[labels.index("IP") + 1], "MAC")
+
+    def test_hostname_directly_after_mac(self):
+        labels = [label for label, _ in self._fields()]
+        self.assertEqual(labels[labels.index("MAC") + 1], "Host")
 
     def test_page_count_matches_field_count(self):
         for cfg in (sl.Config(),

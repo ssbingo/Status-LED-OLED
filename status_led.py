@@ -50,7 +50,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.5.0"
+__version__ = "1.5.1"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -1025,6 +1025,44 @@ def get_hostname() -> str:
         return "n/a"
 
 
+def get_active_iface(prefer: str = "") -> str | None:
+    """Name der aktiven Netzwerkkarte: das Interface der Default-Route.
+    Faellt auf das erste UP-Interface (ausser lo) zurueck."""
+    if prefer:
+        return prefer
+    try:
+        with open("/proc/net/route") as f:
+            next(f)                                  # Kopfzeile ueberspringen
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "00000000":   # Default-Route
+                    return parts[0]
+    except (OSError, StopIteration):
+        pass
+    for base in sorted(glob.glob("/sys/class/net/*")):
+        name = os.path.basename(base)
+        if name == "lo":
+            continue
+        try:
+            if Path(base + "/operstate").read_text().strip() == "up":
+                return name
+        except OSError:
+            continue
+    return None
+
+
+def get_mac(prefer_iface: str = "") -> str:
+    """MAC-Adresse der aktiven Netzwerkkarte (Grossschreibung)."""
+    iface = get_active_iface(prefer_iface)
+    if not iface:
+        return "n/a"
+    try:
+        mac = Path(f"/sys/class/net/{iface}/address").read_text().strip()
+        return mac.upper() if mac else "n/a"
+    except OSError:
+        return "n/a"
+
+
 def get_mem_mb() -> tuple[int, int]:
     try:
         info = {}
@@ -1076,6 +1114,7 @@ def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
     fields: list[tuple[str, str]] = [
         ("Ver", __version__),
         ("IP", get_ip()),
+        ("MAC", get_mac(cfg.net_iface)),
         ("Host", get_hostname()),
         ("CPU", f"{ctx.temp_c:.0f}C L{ctx.cpu_load:.2f}"),
         ("RAM", f"{used}/{total}MB"),
@@ -1099,7 +1138,7 @@ def oled_fields(ctx: Context, status: StatusDef) -> list[tuple[str, str]]:
 
 def oled_big_page_count(cfg: Config) -> int:
     """Anzahl grosser Einzelseiten - haengt nur von cfg ab, daher stabil zur Laufzeit."""
-    n = 7  # Ver, IP, Host, CPU, RAM, Status, Up
+    n = 8  # Ver, IP, MAC, Host, CPU, RAM, Status, Up
     n += int(cfg.net_throughput_enabled)
     n += int(cfg.smart_enabled)
     n += int(cfg.fan_enabled)
@@ -1162,7 +1201,12 @@ def build_state(ctx: Context, status: StatusDef, history: dict | None = None) ->
             "used_percent": round(100 - ctx.disk_free_pct, 1),
             "temp_c": ctx.disk_temp_c,
         },
-        "net": {"rx_bps": round(ctx.net_rx_rate), "tx_bps": round(ctx.net_tx_rate)},
+        "net": {
+            "rx_bps": round(ctx.net_rx_rate),
+            "tx_bps": round(ctx.net_tx_rate),
+            "iface": get_active_iface(cfg.net_iface) or "n/a",
+            "mac": get_mac(cfg.net_iface),
+        },
         "fan": {
             "available": fan_available,
             "rpm": ctx.fan_rpm,

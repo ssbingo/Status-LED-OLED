@@ -2,6 +2,7 @@
 
 const REFRESH_MS = 2000;
 const C = 2 * Math.PI * 52;   // Umfang der Gauge-Kreise (r = 52)
+const WARN_STATES = ["backup_failed", "network_down", "smart_warn", "fan_warn", "diskspace_low"];
 
 const $ = (id) => document.getElementById(id);
 
@@ -68,13 +69,19 @@ function render(s) {
   $("version").textContent = "v" + s.version;
   $("uptime").textContent = fmtUptime(s.host.uptime_s);
 
-  // Status-Badge
+  // LED-Symbol (Kopf, auf allen Tabs) + Status-Badge spiegeln die LED-Farbe/Muster
+  const pulse = s.status.name === "backup_running";
+  const blink = WARN_STATES.includes(s.status.name);
+  const led = $("led");
+  led.style.setProperty("--led", s.status.color);
+  led.classList.toggle("pulse", pulse);
+  led.classList.toggle("blink", blink);
+
   const badge = $("status-badge");
-  badge.textContent = s.status.text;
-  badge.style.background = s.status.color;
-  badge.classList.toggle("pulse", s.status.name === "backup_running");
-  badge.classList.toggle("blink", ["backup_failed", "network_down", "smart_warn",
-    "fan_warn", "diskspace_low"].includes(s.status.name));
+  $("status-dot").style.setProperty("--led", s.status.color);
+  $("status-text").textContent = s.status.text;
+  badge.classList.toggle("pulse", pulse);
+  badge.classList.toggle("blink", blink);
   $("backup-state").textContent = ({ ok: "OK", running: "läuft…", failed: "Fehler" })[s.backup.state] || s.backup.state;
 
   // CPU
@@ -118,6 +125,8 @@ function render(s) {
   // Netzwerk
   $("net-rx").textContent = fmtRate(s.net.rx_bps);
   $("net-tx").textContent = fmtRate(s.net.tx_bps);
+  $("net-iface").textContent = s.net.iface || "–";
+  $("net-mac").textContent = s.net.mac || "–";
 
   // Verlaufsgrafiken
   const hist = s.history || {};

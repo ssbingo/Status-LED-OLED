@@ -31,8 +31,23 @@ body {
   background: rgba(13,17,23,.6); backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 10;
 }
-.brand { display: flex; align-items: center; gap: 12px; }
-.logo { color: var(--accent); font-size: 20px; text-shadow: 0 0 12px var(--accent); }
+.brand { display: flex; align-items: center; gap: 14px; }
+
+/* ---- Plastische LED (zeigt die LED-Farbe, auf allen Tabs im Kopf) ---- */
+.led { --led: #30d158; position: relative; width: 30px; height: 30px;
+  display: inline-grid; place-items: center; flex: none; }
+.led-dot {
+  width: 24px; height: 24px; border-radius: 50%;
+  background:
+    radial-gradient(circle at 33% 27%, rgba(255,255,255,.95) 0%, rgba(255,255,255,.2) 13%, transparent 34%),
+    radial-gradient(circle at 50% 58%, var(--led) 36%, rgba(0,0,0,.62) 125%);
+  box-shadow: 0 0 13px 2px var(--led), inset 0 -3px 5px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.35);
+  box-shadow: 0 0 16px 3px color-mix(in srgb, var(--led) 70%, transparent),
+              inset 0 -3px 5px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.4);
+  transition: background .5s ease, box-shadow .5s ease;
+}
+.led.pulse .led-dot { animation: ledpulse 1.6s ease-in-out infinite; }
+.led.blink .led-dot { animation: ledblink 1s steps(1) infinite; }
 .host { font-weight: 650; font-size: 18px; }
 .sub { color: var(--muted); font-size: 13px; }
 .meta { display: flex; align-items: center; gap: 14px; }
@@ -89,12 +104,21 @@ main { padding: 18px 22px 40px; }
 /* ---- Status card ---- */
 .status-card { align-items: stretch; }
 .badge {
-  text-align: center; font-weight: 700; font-size: 18px; padding: 14px 10px;
-  border-radius: 12px; color: #06121f; background: var(--green);
-  transition: background .5s ease;
+  display: flex; align-items: center; justify-content: center; gap: 11px;
+  font-weight: 700; font-size: 17px; padding: 13px 12px; border-radius: 12px;
+  color: var(--fg); background: var(--card2); border: 1px solid var(--line);
 }
-.badge.pulse { animation: badgepulse 1.4s ease-in-out infinite; }
-.badge.blink { animation: badgeblink 1s steps(1) infinite; }
+.bdot {
+  --led: #30d158; width: 15px; height: 15px; border-radius: 50%; flex: none;
+  background:
+    radial-gradient(circle at 33% 27%, rgba(255,255,255,.95) 0%, transparent 40%),
+    radial-gradient(circle at 50% 58%, var(--led) 38%, rgba(0,0,0,.55) 130%);
+  box-shadow: 0 0 9px 1px var(--led);
+  box-shadow: 0 0 11px 2px color-mix(in srgb, var(--led) 70%, transparent);
+  transition: background .5s ease, box-shadow .5s ease;
+}
+.badge.pulse .bdot { animation: ledpulse 1.6s ease-in-out infinite; }
+.badge.blink .bdot { animation: ledblink 1s steps(1) infinite; }
 
 /* ---- Fan ---- */
 .fan-card .fan { width: 110px; height: 110px; }
@@ -127,12 +151,14 @@ main { padding: 18px 22px 40px; }
 .placeholder { max-width: 560px; margin: 30px auto; text-align: center; color: var(--fg); }
 .placeholder .muted, .muted { color: var(--muted); }
 
+.kv b.mac { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 13px; }
+
 /* ---- Animations ---- */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-@keyframes badgepulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
-@keyframes badgeblink { 0% { opacity: 1; } 50% { opacity: .3; } 100% { opacity: 1; } }
+@keyframes ledpulse { 0%,100% { filter: brightness(.6); } 50% { filter: brightness(1.5); } }
+@keyframes ledblink { 0%,49% { opacity: 1; } 50%,100% { opacity: .22; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .fan-rot, .live .dot, .badge { animation: none !important; }
+  .fan-rot, .live .dot, .led-dot, .bdot { animation: none !important; }
 }

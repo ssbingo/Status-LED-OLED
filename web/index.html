@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="logo">●</span>
+      <span class="led" id="led" title="LED-Status"><span class="led-dot"></span></span>
       <div>
         <div class="host" id="host">…</div>
         <div class="sub" id="ip">…</div>
@@ -35,7 +35,10 @@
         <!-- Status -->
         <div class="card status-card" id="status-card">
           <div class="card-h">Status</div>
-          <div class="badge" id="status-badge">…</div>
+          <div class="badge" id="status-badge">
+            <span class="bdot" id="status-dot"></span>
+            <span id="status-text">…</span>
+          </div>
           <div class="kv"><span>Backup</span><b id="backup-state">–</b></div>
           <div class="kv"><span>Uptime</span><b id="uptime">–</b></div>
         </div>
@@ -103,6 +106,8 @@
             <polyline id="net-spark-rx" class="spark-rx" points=""></polyline>
             <polyline id="net-spark-tx" class="spark-tx" points=""></polyline>
           </svg>
+          <div class="kv"><span>Adapter</span><b id="net-iface">–</b></div>
+          <div class="kv"><span>MAC</span><b id="net-mac" class="mac">–</b></div>
         </div>
 
         <!-- Verlauf CPU-Temp -->
