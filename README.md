@@ -48,6 +48,7 @@ status-led setup       # re-run the configuration wizard
 status-led update      # update to the latest version (see below)
 status-led restart     # restart the service
 status-led diag        # hardware diagnostics (OLED/SMART/fan)
+status-led web-setup   # set up the web dashboard (see section 13)
 ```
 
 ### Update
@@ -275,7 +276,7 @@ check_host = "1.1.1.1"       # internet check; for LAN use the gateway IP
 enabled      = true          # push button on GPIO17
 long_press_s = 5.0           # hold this long -> reboot
 
-# Optional new states (see section 13):
+# Optional new states (see section 14):
 [cpuload]
 threshold = 0.0              # 1-min load threshold; 0 = auto (= number of cores)
 [diskspace]
@@ -513,7 +514,40 @@ fi
 
 ---
 
-## 13. Reference: states, LED colour and OLED text
+## 13. Web dashboard (optional)
+
+A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). It shows exactly the same data as the LED/OLED. Later it grows into tabs (“Übersicht”, “Backup”, …); the tab bar is already in place.
+
+### Set it up
+
+`install.sh` asks whether to enable it; or run it any time:
+
+```bash
+sudo status-led web-setup
+```
+
+You choose the **bind address** (default `0.0.0.0` = reachable on the LAN), the **port** (default `8080`) and a **username + password** (HTTP Basic Auth). Then open `http://<pi-ip>:8080/` in a browser.
+
+```bash
+status-led web        # show the dashboard URL and service status
+journalctl -u status-led-web -f   # live log
+```
+
+### How it works
+
+The main service writes a snapshot to `/run/status-led/state.json` about every 2 s (including a short value history for the sparklines). A tiny web server (Python standard library, **no extra dependencies**) serves the page from `/opt/status-led/web/` and that JSON at `/api/state`; the browser polls it every ~2 s. The web service runs as an **unprivileged** user (`statusled-web`) and only reads the state file.
+
+| File | Purpose |
+|---|---|
+| `/etc/status-led/web.env` | bind address, port, paths |
+| `/etc/status-led/web.secret` (0600) | dashboard username / password |
+| `status-led-web.service` | the web service |
+
+> **Security:** the dashboard exposes system information on the chosen network. It is protected by a password, but Basic Auth is sent unencrypted over plain HTTP — fine on a trusted home LAN. For an untrusted network bind it to `127.0.0.1` and use an SSH tunnel, or put it behind a reverse proxy with HTTPS.
+
+---
+
+## 14. Reference: states, LED colour and OLED text
 
 | State                 | LED colour & pattern  | OLED text         | Prio | Enabled by default |
 |-----------------------|-----------------------|-------------------|------|--------------------|
@@ -541,7 +575,7 @@ When several states are active, the one with the highest priority wins (for both
 
 ---
 
-## 14. Add your own states
+## 15. Add your own states
 
 Each state consists of a condition and a render function and is registered with a priority in the `STATUSES` list. For the OLED display, also add a text in `STATUS_TEXT`:
 
@@ -562,7 +596,7 @@ The built-in optional states (`smart`, `fan`, `cpuload`, `diskspace`) follow the
 
 ---
 
-## 15. Troubleshooting (from practice)
+## 16. Troubleshooting (from practice)
 
 The following cases come from a real setup — from the service start to the flickering LED.
 
@@ -648,9 +682,16 @@ journalctl -u status-led -e            # service log with errors
 
 ---
 
-## 16. Changelog
+## 17. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.5.0] — 2026-06-28
+
+**Added**
+- Optional **web dashboard** (`status-led web-setup`): a modern dark page showing all values with animated radial gauges (RAM/disk), a spinning fan icon and short history sparklines. Phase 1 = "Übersicht" tab; the tab bar (with a "Backup" placeholder) is already in place for later.
+- The main service writes `/run/status-led/state.json` (current values + short history); a dependency-free stdlib web server (`web_server.py`) serves the page and `/api/state` with HTTP Basic Auth, running as an unprivileged user.
+- New `[web]` config keys, `setup-web.sh`, and `status-led web` / `web-setup`.
 
 ### [1.4.1] — 2026-06-28
 
@@ -736,7 +777,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## 17. License
+## 18. License
 
 This project is released under the **MIT License**. You may use, modify and distribute it freely, including commercially, as long as the copyright notice and the license text are retained. The full text is in the [LICENSE](LICENSE) file.
 

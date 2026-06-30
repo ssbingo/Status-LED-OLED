@@ -190,6 +190,18 @@ else
     c_info "Kein Terminal - Backup spaeter mit: sudo status-led backup-setup"
 fi
 
+# --- Optionales Web-Dashboard -------------------------------------------------
+echo
+if have_tty; then
+    a="$(ask_tty 'Web-Dashboard jetzt einrichten? (j/N): ')"
+    case "${a,,}" in
+        j|ja|y|yes) "$INSTALL_DIR/setup-web.sh" || c_warn "Web-Assistent abgebrochen." ;;
+        *) c_info "Web-Dashboard uebersprungen (spaeter: sudo status-led web-setup)" ;;
+    esac
+else
+    c_info "Kein Terminal - Web-Dashboard spaeter mit: sudo status-led web-setup"
+fi
+
 # --- Abschluss ----------------------------------------------------------------
 echo
 c_info "Fertig. Naechste Schritte:"
@@ -197,6 +209,7 @@ echo "    status-led status     # Dienststatus"
 echo "    status-led logs       # Live-Log"
 echo "    status-led setup        # Konfiguration erneut anpassen"
 echo "    status-led backup-setup # Backup einrichten/aendern"
+echo "    status-led web-setup    # Web-Dashboard einrichten/aendern"
 echo "    status-led update       # spaeter auf neue Version aktualisieren"
 echo
 if [ "$REBOOT_NEEDED" -eq 1 ]; then

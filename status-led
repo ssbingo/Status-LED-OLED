@@ -25,11 +25,14 @@ Verwendung: status-led <befehl>
   backup-setup  Backup einrichten/aendern (restic)
   backup-status Backup-Zeitplan und letztes Log anzeigen
   restore       Daten aus dem Backup wiederherstellen (Assistent)
+  web           Web-Dashboard: Adresse und Status anzeigen
+  web-setup     Web-Dashboard einrichten/aendern
   version       installierte Version anzeigen
 EOF
 }
 
 backup_ready() { [ -f /etc/systemd/system/status-led-backup.service ]; }
+web_ready()    { [ -f /etc/systemd/system/status-led-web.service ]; }
 
 case "${1:-}" in
     setup)   exec sudo "$VENV_PY" "$INSTALL_DIR/status_led.py" --setup --config "$CONFIG_FILE" ;;
@@ -48,6 +51,17 @@ case "${1:-}" in
         ;;
     backup-setup)  exec sudo "$INSTALL_DIR/setup-backup.sh" ;;
     restore)       exec sudo "$INSTALL_DIR/restore.sh" ;;
+    web-setup)     exec sudo "$INSTALL_DIR/setup-web.sh" ;;
+    web)
+        if web_ready; then
+            port="$(sed -n 's/^WEB_PORT=//p' /etc/status-led/web.env 2>/dev/null | head -1)"
+            ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+            echo "Web-Dashboard: http://${ip:-<pi-ip>}:${port:-8080}/"
+            systemctl status status-led-web.service --no-pager
+        else
+            echo "Web-Dashboard nicht eingerichtet - 'sudo status-led web-setup' ausfuehren."; exit 1
+        fi
+        ;;
     backup-status)
         if backup_ready; then
             systemctl list-timers status-led-backup.timer --no-pager || true

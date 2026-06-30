@@ -48,6 +48,7 @@ status-led setup       # Konfigurations-Assistent erneut starten
 status-led update      # auf die neueste Version aktualisieren (siehe unten)
 status-led restart     # Dienst neu starten
 status-led diag        # Hardware-Diagnose (OLED/SMART/Lüfter)
+status-led web-setup   # Web-Dashboard einrichten (siehe Abschnitt 13)
 ```
 
 ### Update
@@ -275,7 +276,7 @@ check_host = "1.1.1.1"       # Internet-Check; fuer LAN die Gateway-IP
 enabled      = true          # Taster an GPIO17
 long_press_s = 5.0           # so lange halten -> Neustart
 
-# Optionale neue Zustaende (siehe Abschnitt 13):
+# Optionale neue Zustaende (siehe Abschnitt 14):
 [cpuload]
 threshold = 0.0              # 1-Minuten-Load-Schwelle; 0 = automatisch (= Anzahl Kerne)
 [diskspace]
@@ -513,7 +514,40 @@ fi
 
 ---
 
-## 13. Referenz: Zustände, LED-Farbe und OLED-Text
+## 13. Web-Dashboard (optional)
+
+Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Sie zeigt exakt dieselben Werte wie LED/OLED. Später wächst sie zu Tabs („Übersicht", „Backup", …); die Tableiste ist bereits angelegt.
+
+### Einrichten
+
+`install.sh` fragt, ob es aktiviert werden soll; du kannst es jederzeit starten:
+
+```bash
+sudo status-led web-setup
+```
+
+Du wählst die **Bind-Adresse** (Standard `0.0.0.0` = im ganzen LAN erreichbar), den **Port** (Standard `8080`) und **Benutzername + Passwort** (HTTP-Basic-Auth). Danach im Browser `http://<pi-ip>:8080/` öffnen.
+
+```bash
+status-led web        # Dashboard-Adresse und Dienststatus anzeigen
+journalctl -u status-led-web -f   # Live-Log
+```
+
+### Funktionsweise
+
+Der Hauptdienst schreibt etwa alle 2 s einen Schnappschuss nach `/run/status-led/state.json` (inkl. kurzem Werteverlauf für die Sparklines). Ein winziger Webserver (Python-Standardbibliothek, **keine Zusatzabhängigkeiten**) liefert die Seite aus `/opt/status-led/web/` und das JSON unter `/api/state`; der Browser pollt es alle ~2 s. Der Web-Dienst läuft als **unprivilegierter** Benutzer (`statusled-web`) und liest nur die Statusdatei.
+
+| Datei | Zweck |
+|---|---|
+| `/etc/status-led/web.env` | Bind-Adresse, Port, Pfade |
+| `/etc/status-led/web.secret` (0600) | Benutzer / Passwort des Dashboards |
+| `status-led-web.service` | der Web-Dienst |
+
+> **Sicherheit:** Das Dashboard zeigt Systeminfos im gewählten Netz. Es ist passwortgeschützt, aber Basic-Auth wird über reines HTTP unverschlüsselt übertragen — im vertrauenswürdigen Heimnetz in Ordnung. Für ein unsicheres Netz an `127.0.0.1` binden und per SSH-Tunnel zugreifen, oder hinter einen Reverse-Proxy mit HTTPS setzen.
+
+---
+
+## 14. Referenz: Zustände, LED-Farbe und OLED-Text
 
 | Zustand               | LED-Farbe & Muster    | OLED-Text         | Prio | Standard aktiv      |
 |-----------------------|-----------------------|-------------------|------|---------------------|
@@ -539,7 +573,7 @@ Die SMART- und Lüfter-Zustände sind **standardmäßig aus**, weil sie Zusatzso
 
 ---
 
-## 14. Eigene Zustände ergänzen
+## 15. Eigene Zustände ergänzen
 
 Jeder Zustand besteht aus Bedingung und Render-Funktion und wird mit Priorität in der Liste `STATUSES` registriert. Für die OLED-Anzeige zusätzlich einen Text in `STATUS_TEXT`:
 
@@ -560,7 +594,7 @@ Die eingebauten optionalen Zustände (`smart`, `fan`, `cpuload`, `diskspace`) fo
 
 ---
 
-## 15. Troubleshooting (aus der Praxis)
+## 16. Troubleshooting (aus der Praxis)
 
 Die folgenden Fälle stammen aus einer echten Inbetriebnahme — vom Dienststart bis zur flackernden LED.
 
@@ -646,9 +680,16 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 
 ---
 
-## 16. Changelog
+## 17. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.5.0] — 2026-06-28
+
+**Hinzugefügt**
+- Optionales **Web-Dashboard** (`status-led web-setup`): eine moderne dunkle Seite, die alle Werte mit animierten Radial-Gauges (RAM/Speicher), drehendem Lüftersymbol und kurzen Verlaufsgrafiken zeigt. Phase 1 = Tab „Übersicht"; die Tableiste (mit Platzhalter „Backup") ist für später bereits angelegt.
+- Der Hauptdienst schreibt `/run/status-led/state.json` (aktuelle Werte + kurzer Verlauf); ein abhängigkeitsfreier stdlib-Webserver (`web_server.py`) liefert Seite und `/api/state` mit HTTP-Basic-Auth, ausgeführt als unprivilegierter Benutzer.
+- Neue `[web]`-Konfigschlüssel, `setup-web.sh` und `status-led web` / `web-setup`.
 
 ### [1.4.1] — 2026-06-28
 
@@ -734,7 +775,7 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
-## 17. Lizenz
+## 18. Lizenz
 
 Dieses Projekt steht unter der **MIT-Lizenz**. Du darfst es frei verwenden, ändern und weitergeben (auch kommerziell), solange der Copyright-Hinweis und der Lizenztext erhalten bleiben. Der vollständige Text steht in der Datei [LICENSE](../../LICENSE).
 

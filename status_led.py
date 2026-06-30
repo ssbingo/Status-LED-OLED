@@ -40,6 +40,7 @@ import sys
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -49,7 +50,7 @@ try:
 except ModuleNotFoundError:           # pragma: no cover - aeltere Python-Versionen
     tomllib = None
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 # ============================================================================
 # Konfiguration  --  hier alles Wichtige einstellen
@@ -136,6 +137,11 @@ class Config:
     fan_poll_s: float = 5.0
     fan_hwmon_glob: str = ""          # optionaler fester Pfad zu fanX_input; leer = automatisch suchen
 
+    # --- Weboberflaeche (Statusdatei fuer das Dashboard) ---
+    web_state_path: str = "/run/status-led/state.json"  # vom Hauptdienst geschrieben, vom Webserver gelesen
+    web_state_write_s: float = 2.0    # Schreibintervall der Statusdatei
+    web_history_points: int = 90      # Anzahl Verlaufspunkte (90 x 2s = 3 min) fuer die Mini-Charts
+
     # --- Helligkeiten (0..1) ---
     green_idle: float = 0.25
     green_active: float = 1.00
@@ -216,6 +222,9 @@ CONFIG_MAP: dict[str, str] = {
     "brightness.green_idle": "green_idle",
     "brightness.green_active": "green_active",
     "brightness.red_level": "red_level",
+    "web.state_path": "web_state_path",
+    "web.state_write_s": "web_state_write_s",
+    "web.history_points": "web_history_points",
     "loop.tick_s": "tick_s",
     "loop.duration_s": "duration_s",
 }
@@ -984,6 +993,19 @@ STATUS_TEXT = {
     "ok": "Normalbetrieb",
 }
 
+# Repraesentative Farbe je Status fuer die Weboberflaeche (an die LED angelehnt)
+STATUS_WEB_COLOR = {
+    "overtemp": "#ff3b30",
+    "smart_warn": "#e5e5e5",
+    "fan_warn": "#ff9500",
+    "network_down": "#0a84ff",
+    "backup_failed": "#ff2d95",
+    "diskspace_low": "#ffd60a",
+    "backup_running": "#32d6d6",
+    "cpuload_high": "#ffb000",
+    "ok": "#30d158",
+}
+
 
 def get_ip() -> str:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1100,6 +1122,97 @@ def oled_lines(ctx: Context, status: StatusDef) -> list[str]:
         f"RAM {f.get('RAM', '')}",
         f.get("Status", ""),
     ]
+
+
+# ============================================================================
+# Web-Status  --  Snapshot fuer das Dashboard (state.json)
+# ============================================================================
+#
+# Der Hauptdienst schreibt die aktuellen Werte (+ kurzer Verlauf) als JSON nach
+# /run/status-led/state.json. Der separate Webserver (web_server.py) liest nur
+# diese Datei - so zeigt die Weboberflaeche exakt dieselben Werte wie LED/OLED.
+
+
+def build_state(ctx: Context, status: StatusDef, history: dict | None = None) -> dict:
+    """Aktuellen Zustand als serialisierbares dict aufbereiten."""
+    cfg = ctx.cfg
+    used, total = get_mem_mb()
+    ram_pct = round(used / total * 100, 1) if total else 0.0
+    fan_available = ctx.fan_rpm is not None or ctx.fan_level is not None
+    return {
+        "ts": time.time(),
+        "version": __version__,
+        "host": {
+            "name": get_hostname(),
+            "ip": get_ip(),
+            "uptime_s": int(get_uptime_s()),
+        },
+        "cpu": {
+            "temp_c": round(ctx.temp_c, 1),
+            "load1": round(ctx.cpu_load, 2),
+            "cores": os.cpu_count() or 1,
+            "overtemp": ctx.overtemp_latched,
+            "threshold_c": cfg.temp_threshold_c,
+        },
+        "ram": {"used_mb": used, "total_mb": total, "percent": ram_pct},
+        "disk": {
+            "enabled": cfg.diskspace_enabled,
+            "path": cfg.diskspace_path,
+            "free_percent": round(ctx.disk_free_pct, 1),
+            "used_percent": round(100 - ctx.disk_free_pct, 1),
+            "temp_c": ctx.disk_temp_c,
+        },
+        "net": {"rx_bps": round(ctx.net_rx_rate), "tx_bps": round(ctx.net_tx_rate)},
+        "fan": {
+            "available": fan_available,
+            "rpm": ctx.fan_rpm,
+            "level": ctx.fan_level,
+            "max_level": ctx.fan_max_level,
+        },
+        "smart": {"enabled": cfg.smart_enabled, "failed": ctx.smart_failed},
+        "backup": {"state": ctx.backup_state},
+        "status": {
+            "name": status.name,
+            "text": STATUS_TEXT.get(status.name, status.name),
+            "color": STATUS_WEB_COLOR.get(status.name, "#888888"),
+        },
+        "history": history or {},
+    }
+
+
+class StateWriter:
+    """Schreibt periodisch die Statusdatei und haelt einen kurzen Werteverlauf."""
+
+    _KEYS = ("t", "cpu_temp", "ram_pct", "disk_free", "net_rx", "net_tx")
+
+    def __init__(self, cfg: Config):
+        self._path = Path(cfg.web_state_path)
+        self._interval = cfg.web_state_write_s
+        self._last = 0.0
+        n = max(2, cfg.web_history_points)
+        self._hist: dict[str, deque] = {k: deque(maxlen=n) for k in self._KEYS}
+
+    def write(self, ctx: Context, status: StatusDef) -> None:
+        if ctx.now - self._last < self._interval:
+            return
+        self._last = ctx.now
+        used, total = get_mem_mb()
+        ram_pct = round(used / total * 100, 1) if total else 0.0
+        self._hist["t"].append(int(time.time()))
+        self._hist["cpu_temp"].append(round(ctx.temp_c, 1))
+        self._hist["ram_pct"].append(ram_pct)
+        self._hist["disk_free"].append(round(ctx.disk_free_pct, 1))
+        self._hist["net_rx"].append(round(ctx.net_rx_rate))
+        self._hist["net_tx"].append(round(ctx.net_tx_rate))
+        data = build_state(ctx, status, {k: list(v) for k, v in self._hist.items()})
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(data))
+            os.replace(tmp, self._path)
+            os.chmod(self._path, 0o644)
+        except OSError:
+            pass        # Webanzeige darf den Hauptbetrieb nie stoeren
 
 
 class OledStatus:
@@ -1367,6 +1480,7 @@ def run(cfg: Config, simulate: bool = False) -> None:
 
     ctx = Context(cfg=cfg)
     page_count = oled_page_count(cfg)
+    state_writer = StateWriter(cfg)
     stop = {"flag": False}
 
     def handle(_sig, _frame):
@@ -1414,6 +1528,7 @@ def run(cfg: Config, simulate: bool = False) -> None:
 
             status = current_status(ctx)
             driver.set_color(status.render(ctx))
+            state_writer.write(ctx, status)
 
             force_oled = False
             if button is not None:

@@ -110,6 +110,43 @@ class TestEnableFlags(unittest.TestCase):
         self.assertTrue(sl.is_fan_warn(ctx(cfg=cfg, fan_failed=True)))
 
 
+class TestBuildState(unittest.TestCase):
+    def _state(self, **kw):
+        cfg = kw.pop("cfg", None) or sl.Config()
+        c = sl.Context(cfg=cfg)
+        for k, v in kw.items():
+            setattr(c, k, v)
+        return sl.build_state(c, sl.current_status(c))
+
+    def test_has_top_level_sections(self):
+        s = self._state()
+        for key in ("ts", "version", "host", "cpu", "ram", "disk", "net",
+                    "fan", "smart", "backup", "status", "history"):
+            self.assertIn(key, s)
+
+    def test_version_and_status_color(self):
+        s = self._state()
+        self.assertEqual(s["version"], sl.__version__)
+        self.assertEqual(s["status"]["color"], sl.STATUS_WEB_COLOR["ok"])
+
+    def test_disk_used_is_complement_of_free(self):
+        s = self._state(disk_free_pct=78.0)
+        self.assertAlmostEqual(s["disk"]["used_percent"], 22.0, places=1)
+
+    def test_fan_available_flag(self):
+        self.assertFalse(self._state()["fan"]["available"])
+        self.assertTrue(self._state(fan_rpm=1500)["fan"]["available"])
+        self.assertTrue(self._state(fan_level=2, fan_max_level=4)["fan"]["available"])
+
+    def test_json_serialisable(self):
+        import json
+        json.dumps(self._state(fan_rpm=1200, disk_temp_c=43))
+
+    def test_every_status_has_web_color(self):
+        for st in sl.STATUSES:
+            self.assertIn(st.name, sl.STATUS_WEB_COLOR, f"keine Web-Farbe fuer {st.name}")
+
+
 class TestConfigKeys(unittest.TestCase):
     def test_new_keys_map(self):
         cfg = sl.Config()
