@@ -162,10 +162,68 @@ async function poll() {
   }
 }
 
+// ---- Backup-Tab -------------------------------------------------------------
+function fmtAgo(epoch) {
+  if (!epoch) return "—";
+  const d = epoch - Date.now() / 1000;            // > 0 = Zukunft
+  const a = Math.abs(d);
+  const s = a < 90 ? `${Math.round(a)} s`
+    : a < 5400 ? `${Math.round(a / 60)} min`
+      : a < 172800 ? `${Math.round(a / 3600)} h`
+        : `${Math.round(a / 86400)} d`;
+  return d >= 0 ? `in ${s}` : `vor ${s}`;
+}
+
+async function loadBackup() {
+  let b;
+  try { b = await (await fetch("api/backup", { cache: "no-store" })).json(); }
+  catch (e) { return; }
+  const none = $("bk-none"), content = $("bk-content");
+  if (!b.configured) { none.hidden = false; content.hidden = true; return; }
+  none.hidden = true; content.hidden = false;
+  const LABEL = { ok: "OK", running: "läuft…", failed: "Fehler" };
+  const COLOR = { ok: "#30d158", running: "#32d6d6", failed: "#ff2d95" };
+  const st = b.state || "ok";
+  const badge = $("bk-badge");
+  badge.textContent = "Backup: " + (LABEL[st] || st);
+  badge.style.background = COLOR[st] || "#888";
+  badge.style.color = idealText(COLOR[st] || "#888");
+  badge.classList.toggle("pulse", st === "running");
+  badge.classList.toggle("blink", st === "failed");
+  $("bk-schedule").textContent = b.schedule || "—";
+  $("bk-next").textContent = fmtAgo(b.next_run);
+  $("bk-last").textContent = b.last_start || "—";
+  $("bk-result").textContent = b.last_result ? ({ success: "erfolgreich" }[b.last_result] || b.last_result) : "—";
+  $("bk-log").textContent = b.log || "(kein Log-Zugriff – auf dem Pi 'sudo status-led web-setup' erneut ausführen, um Journal-Rechte zu setzen)";
+}
+
+// ---- System-Tab -------------------------------------------------------------
+async function loadSystem() {
+  let d;
+  try { d = await (await fetch("api/system", { cache: "no-store" })).json(); }
+  catch (e) { return; }
+  const el = $("sys-services");
+  el.textContent = "";
+  (d.services || []).forEach(s => {
+    const cls = s.active === "active" ? "on" : (s.active === "not-installed" ? "off" : "warn");
+    const row = document.createElement("div");
+    row.className = "svc";
+    row.innerHTML = `<span class="svc-dot ${cls}"></span>`
+      + `<span class="svc-name"></span><span class="svc-state"></span>`;
+    row.querySelector(".svc-name").textContent = s.name;
+    row.querySelector(".svc-state").textContent = s.active + (s.sub ? " · " + s.sub : "");
+    el.appendChild(row);
+  });
+}
+
 // ---- Tabs -------------------------------------------------------------------
+let activeTab = "overview";
 function selectTab(name) {
+  activeTab = name;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tabpanel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
+  if (name === "backup") loadBackup();
+  else if (name === "system") loadSystem();
 }
 document.querySelectorAll(".tab").forEach(t =>
   t.addEventListener("click", () => { location.hash = t.dataset.tab; }));
@@ -174,3 +232,4 @@ selectTab(location.hash.slice(1) || "overview");
 
 poll();
 setInterval(poll, REFRESH_MS);
+setInterval(() => { if (activeTab === "backup") loadBackup(); else if (activeTab === "system") loadSystem(); }, 15000);

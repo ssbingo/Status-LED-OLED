@@ -15,8 +15,11 @@ Konfiguration ueber Umgebungsvariablen (systemd EnvironmentFile=/etc/status-led/
 from __future__ import annotations
 
 import hmac
+import json
 import os
 import posixpath
+import re
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from base64 import b64decode
 
@@ -36,6 +39,82 @@ CONTENT_TYPES = {
     ".ico": "image/x-icon",
     ".png": "image/png",
 }
+
+
+def _run(args: list[str], timeout: int = 6) -> str:
+    """Liest-only Kommando ausfuehren; bei Fehler leeren String liefern."""
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _show(unit: str, props: list[str]) -> dict:
+    """'systemctl show' -> dict der angefragten Properties."""
+    out = _run(["systemctl", "show", unit, *[f"-p{p}" for p in props]])
+    d: dict[str, str] = {}
+    for line in out.splitlines():
+        key, _, val = line.partition("=")
+        d[key] = val
+    return d
+
+
+def _usec_to_epoch(value: str):
+    try:
+        n = int(value)
+    except (ValueError, TypeError):
+        return None
+    return n / 1_000_000 if n > 0 else None
+
+
+def backup_info() -> dict:
+    """Backup-Zeitplan, letzter Lauf, Zustand und Log (alles nur lesend)."""
+    timer = _show("status-led-backup.timer",
+                  ["LoadState", "NextElapseUSecRealtime", "LastTriggerUSec", "TimersCalendar"])
+    if timer.get("LoadState") != "loaded":
+        return {"configured": False}
+    svc = _show("status-led-backup.service", ["ExecMainStartTimestamp", "Result", "ActiveState"])
+    sched = ""
+    m = re.search(r"OnCalendar=([^;}]+)", timer.get("TimersCalendar", ""))
+    if m:
+        sched = m.group(1).strip()
+    state = None
+    try:
+        with open("/run/status-led/backup") as f:
+            state = f.read().strip()
+    except OSError:
+        pass
+    log = _run(["journalctl", "-u", "status-led-backup", "-n", "60", "--no-pager", "-o", "short-iso"])
+    return {
+        "configured": True,
+        "state": state,
+        "schedule": sched,
+        "next_run": _usec_to_epoch(timer.get("NextElapseUSecRealtime", "")),
+        "last_trigger": _usec_to_epoch(timer.get("LastTriggerUSec", "")),
+        "last_start": svc.get("ExecMainStartTimestamp") or None,
+        "last_result": svc.get("Result") or None,
+        "active": svc.get("ActiveState") or None,
+        "log": log.strip(),
+    }
+
+
+def system_info() -> dict:
+    """Zustand der Status-LED-Dienste (nur lesend)."""
+    units = [
+        ("Status-LED", "status-led.service"),
+        ("Web-Dashboard", "status-led-web.service"),
+        ("Backup-Timer", "status-led-backup.timer"),
+    ]
+    services = []
+    for label, unit in units:
+        d = _show(unit, ["LoadState", "ActiveState", "SubState", "ActiveEnterTimestamp"])
+        if d.get("LoadState") != "loaded":
+            services.append({"name": label, "unit": unit, "active": "not-installed", "sub": "", "since": ""})
+        else:
+            services.append({"name": label, "unit": unit,
+                             "active": d.get("ActiveState", ""), "sub": d.get("SubState", ""),
+                             "since": d.get("ActiveEnterTimestamp", "")})
+    return {"services": services}
 
 
 def load_credentials() -> tuple[str, str] | None:
@@ -94,6 +173,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _send_json(self, obj) -> None:
+        self._send(200, json.dumps(obj).encode("utf-8"), CONTENT_TYPES[".json"], no_store=True)
+
     def _serve_state(self) -> None:
         try:
             with open(STATE_PATH, "rb") as f:
@@ -129,6 +211,10 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/state":
             self._serve_state()
+        elif path == "/api/backup":
+            self._send_json(backup_info())
+        elif path == "/api/system":
+            self._send_json(system_info())
         else:
             self._serve_static(path)
 

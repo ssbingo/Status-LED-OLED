@@ -516,7 +516,7 @@ fi
 
 ## 13. Web-Dashboard (optional)
 
-Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Ein plastisches **LED-Symbol im Kopfbereich** spiegelt auf jedem Tab die Farbe der echten LED samt Blink-/Pulsmuster. Die Netzwerk-Karte zeigt zusätzlich den aktiven Adapter und dessen **MAC-Adresse**. Sie zeigt exakt dieselben Werte wie LED/OLED. Später wächst sie zu Tabs („Übersicht", „Backup", …); die Tableiste ist bereits angelegt.
+Eine kleine eingebaute Webseite zeigt alle gesammelten Werte modern und übersichtlich — mit **animierten Radial-Gauges** (RAM-/Speicher-Füllstand), einem **drehenden Lüftersymbol** (Tempo folgt der Drehzahl/Stufe) und kurzen **Verlaufsgrafiken** (CPU-Temp, RAM, Netzwerk). Ein plastisches **LED-Symbol im Kopfbereich** spiegelt auf jedem Tab die Farbe der echten LED samt Blink-/Pulsmuster. Die Netzwerk-Karte zeigt zusätzlich den aktiven Adapter und dessen **MAC-Adresse**. Sie zeigt exakt dieselben Werte wie LED/OLED. Die Seite hat drei Tabs: **Übersicht** (Live-Werte), **Backup** (Zeitplan, letzter Lauf, Ergebnis und aktuelles Log) und **System** (Dienst-Status).
 
 ### Einrichten
 
@@ -544,6 +544,14 @@ Der Hauptdienst schreibt etwa alle 2 s einen Schnappschuss nach `/run/status-led
 | `status-led-web.service` | der Web-Dienst |
 
 > **Sicherheit:** Das Dashboard zeigt Systeminfos im gewählten Netz. Es ist passwortgeschützt, aber Basic-Auth wird über reines HTTP unverschlüsselt übertragen — im vertrauenswürdigen Heimnetz in Ordnung. Für ein unsicheres Netz an `127.0.0.1` binden und per SSH-Tunnel zugreifen, oder hinter einen Reverse-Proxy mit HTTPS setzen.
+
+### Tabs
+
+- **Übersicht** — die Live-Werte mit den animierten Gauges und Verlaufsgrafiken.
+- **Backup** — Zeitplan (nächster / letzter Lauf), Ergebnis und die letzten Log-Zeilen (nur lesend). Zeigt einen Hinweis, wenn kein Backup eingerichtet ist.
+- **System** — Status (aktiv / inaktiv) der Dienste `status-led`, Web und Backup.
+
+Die Backup-/System-Daten stammen aus nur lesenden `systemctl`- / `journalctl`-Abfragen (`/api/backup`, `/api/system`). Das Lesen des Journals erfordert den Web-Benutzer in der Gruppe `systemd-journal` — `web-setup` richtet das ein; **bestehende Installationen sollten einmal `sudo status-led web-setup` erneut ausführen**, damit das Backup-Log erscheint.
 
 ---
 
@@ -683,6 +691,12 @@ journalctl -u status-led -e            # Dienst-Log mit Fehlern
 ## 17. Changelog
 
 Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.6.0] — 2026-06-28
+
+**Hinzugefügt**
+- Web-Dashboard Phase 2: funktionierende **Tabs**. Neuer **Backup**-Tab (Zeitplan, nächster/letzter Lauf, Ergebnis und aktuelles Log) und **System**-Tab (Dienst-Status), gespeist aus nur lesenden Endpunkten `/api/backup` und `/api/system` (`systemctl` / `journalctl`).
+- `setup-web.sh` nimmt den Web-Benutzer in die Gruppe `systemd-journal` auf, damit das Backup-Log lesbar ist (bei bestehenden Installationen `status-led web-setup` erneut ausführen).
 
 ### [1.5.3] — 2026-06-28
 

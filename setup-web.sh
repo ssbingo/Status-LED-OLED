@@ -73,6 +73,8 @@ if ! id -u "$WEB_USER" >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$WEB_USER"
     c_ok "Dienst-Benutzer '$WEB_USER' angelegt."
 fi
+# Lese-Zugriff auf das Journal (fuer das Backup-Protokoll im System-/Backup-Tab)
+usermod -aG systemd-journal "$WEB_USER" 2>/dev/null || true
 
 # --- Dateien schreiben -------------------------------------------------------
 mkdir -p "$CONFIG_DIR"

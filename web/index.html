@@ -25,6 +25,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="overview">Übersicht</button>
     <button class="tab" data-tab="backup">Backup</button>
+    <button class="tab" data-tab="system">System</button>
   </nav>
 
   <main>
@@ -144,13 +145,35 @@
       </div>
     </section>
 
-    <!-- ============ Backup (Platzhalter, Phase 2) ============ -->
+    <!-- ============ Backup ============ -->
     <section id="tab-backup" class="tabpanel">
-      <div class="placeholder">
-        <h2>Backup</h2>
-        <p>Dieser Bereich folgt in einer späteren Version: Zeitplan, letzter Lauf,
-           Log-Auszug und Snapshot-Liste.</p>
-        <p class="muted">Aktueller Backup-Zustand siehe Karte „Status" in der Übersicht.</p>
+      <div id="bk-none" class="placeholder" hidden>
+        <h2>Backup nicht eingerichtet</h2>
+        <p class="muted">Auf dem Pi einrichten mit <code>sudo status-led backup-setup</code>.</p>
+      </div>
+      <div id="bk-content" class="grid" hidden>
+        <div class="card status-card">
+          <div class="card-h">Backup-Status</div>
+          <div class="badge" id="bk-badge">…</div>
+          <div class="kv"><span>Zeitplan</span><b id="bk-schedule">–</b></div>
+          <div class="kv"><span>Nächster Lauf</span><b id="bk-next">–</b></div>
+          <div class="kv"><span>Letzter Lauf</span><b id="bk-last">–</b></div>
+          <div class="kv"><span>Ergebnis</span><b id="bk-result">–</b></div>
+        </div>
+        <div class="card wide">
+          <div class="card-h">Protokoll (letzte Zeilen)</div>
+          <pre class="log" id="bk-log">…</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ System ============ -->
+    <section id="tab-system" class="tabpanel">
+      <div class="grid">
+        <div class="card wide">
+          <div class="card-h">Dienste</div>
+          <div class="svc-list" id="sys-services"><span class="muted">…</span></div>
+        </div>
       </div>
     </section>
   </main>

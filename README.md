@@ -516,7 +516,7 @@ fi
 
 ## 13. Web dashboard (optional)
 
-A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). A glossy **LED indicator in the header** mirrors the real LED's colour and its blink/pulse pattern on every tab. The network card also shows the active adapter and its **MAC address**. It shows exactly the same data as the LED/OLED. Later it grows into tabs (“Übersicht”, “Backup”, …); the tab bar is already in place.
+A small built-in web page shows all collected values in a modern, clear layout — with **animated radial gauges** (RAM / disk fill), a **spinning fan icon** (speed follows the RPM/stage) and short **history sparklines** (CPU temp, RAM, network). A glossy **LED indicator in the header** mirrors the real LED's colour and its blink/pulse pattern on every tab. The network card also shows the active adapter and its **MAC address**. It shows exactly the same data as the LED/OLED. The page has three tabs: **Übersicht** (live values), **Backup** (schedule, last run, result and recent log) and **System** (service health).
 
 ### Set it up
 
@@ -544,6 +544,14 @@ The main service writes a snapshot to `/run/status-led/state.json` about every 2
 | `status-led-web.service` | the web service |
 
 > **Security:** the dashboard exposes system information on the chosen network. It is protected by a password, but Basic Auth is sent unencrypted over plain HTTP — fine on a trusted home LAN. For an untrusted network bind it to `127.0.0.1` and use an SSH tunnel, or put it behind a reverse proxy with HTTPS.
+
+### Tabs
+
+- **Übersicht** — the live values with the animated gauges and history charts.
+- **Backup** — schedule (next / last run), result and the last log lines (read-only). Shows a hint if no backup is configured.
+- **System** — health (active / inactive) of the `status-led`, web and backup services.
+
+Backup/System data comes from read-only `systemctl` / `journalctl` queries (`/api/backup`, `/api/system`). Reading the journal needs the web user in the `systemd-journal` group — `web-setup` sets this up; **existing installs should re-run `sudo status-led web-setup` once** so the Backup log appears.
 
 ---
 
@@ -685,6 +693,12 @@ journalctl -u status-led -e            # service log with errors
 ## 17. Changelog
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
+
+### [1.6.0] — 2026-06-28
+
+**Added**
+- Web dashboard phase 2: working **tabs**. New **Backup** tab (schedule, next/last run, result and recent log) and **System** tab (service health), backed by read-only `/api/backup` and `/api/system` endpoints (`systemctl` / `journalctl`).
+- `setup-web.sh` adds the web user to the `systemd-journal` group so the Backup log is readable (re-run `status-led web-setup` on existing installs).
 
 ### [1.5.3] — 2026-06-28
 
